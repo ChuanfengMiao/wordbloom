@@ -1,0 +1,27 @@
+{
+  "datasetId": "oewn-2025-wordfreq-en-20k-v1",
+  "generatedAt": "2026-08-28T17:59:30.102318+00:00",
+  "entryCount": 20000,
+  "sources": [
+    {
+      "name": "Open English WordNet",
+      "version": "2025",
+      "license": "CC BY 4.0 with Princeton WordNet attribution",
+      "url": "https://en-word.net/downloads"
+    },
+    {
+      "name": "wordfreq",
+      "version": "3.1.1",
+      "license": "Apache-2.0 code; CC BY-SA 4.0 data",
+      "url": "https://github.com/rspeer/wordfreq"
+    }
+  ],
+  "filters": [
+    "Open English WordNet 2025 core lemmas only",
+    "lowercase single-token alphabetic headwords",
+    "one internal apostrophe allowed; hyphenated compounds excluded because wordfreq tokenizes them as phrases",
+    "identical spellings merged across parts of speech",
+    "surface forms resolved to OEWN headwords, preferring morphological paradigms",
+    "descending frequency of each lemma's first observed wordfreq form"
+  ]
+}
