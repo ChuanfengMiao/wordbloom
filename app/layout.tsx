@@ -3,6 +3,7 @@ import '@fontsource-variable/nunito';
 import './globals.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL('https://wordbloom-vocabulary.miaomiaozi520.chatgpt.site'),
   title: 'WordBloom — Know your words',
   description: 'A calm, private vocabulary inventory for mapping the English words you know.',
   openGraph: {

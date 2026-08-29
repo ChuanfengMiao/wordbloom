@@ -10,12 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import wn
-from wn.morphy import Morphy
-from wordfreq import top_n_list, zipf_frequency
+from wordfreq import zipf_frequency
 
 
 ELIGIBLE = re.compile(r"^[a-z]+(?:'[a-z]+)?$")
-DATASET_ID = "oewn-2025-wordfreq-en-20k-v1"
+DATASET_ID = "oewn-2025-wordfreq-en-20k-v2"
+OEWN_URL = "https://en-word.net/downloads/english-wordnet-2025.xml.gz"
 
 
 def main() -> None:
@@ -29,74 +29,26 @@ def main() -> None:
     try:
         lexicon = wn.Wordnet("oewn:2025")
     except wn.Error:
-        wn.download("oewn:2025")
+        # The wn project index can lag OEWN's annual releases, so install the
+        # official core-only LMF artifact directly from the publisher.
+        wn.download(OEWN_URL)
         lexicon = wn.Wordnet("oewn:2025")
 
-    lemma_form_count: dict[str, int] = {}
+    eligible_lemmas: set[str] = set()
     for word in lexicon.words():
         lemma = word.lemma().strip().lower()
-        forms = {form.strip().lower() for form in word.forms()}
-        if not ELIGIBLE.fullmatch(lemma):
+        if not ELIGIBLE.fullmatch(lemma) or (len(lemma) == 1 and lemma not in {"a", "i"}):
             continue
-        lemma_form_count[lemma] = max(lemma_form_count.get(lemma, 0), len(forms))
+        eligible_lemmas.add(lemma)
 
-    morphy = Morphy(lexicon)
-
-    selected: list[tuple[str, float]] = []
-    seen: set[str] = set()
-    # Start from observed surface forms, then resolve ordinary inflections to
-    # their OEWN headword. This avoids ranking rare homographs such as the noun
-    # "are" by the very frequent verb form "are".
-    for form in top_n_list("en", 120_000, ascii_only=True):
-        form = form.lower()
-        if not ELIGIBLE.fullmatch(form) or (len(form) == 1 and form not in {"a", "i"}):
-            continue
-        candidate_map = morphy(form)
-        candidates = {
-            lemma
-            for lemmas in candidate_map.values()
-            for lemma in lemmas
-            if ELIGIBLE.fullmatch(lemma)
-        }
-        form_score = zipf_frequency(form, "en")
-        if candidates:
-            derived = [
-                candidate
-                for candidate in candidates
-                if candidate != form
-                and (len(candidate) > 1 or candidate in {"a", "i"})
-                and zipf_frequency(candidate, "en") >= form_score - 0.6
-            ]
-            if derived:
-                lemma = max(
-                    derived,
-                    key=lambda candidate: (
-                        lemma_form_count.get(candidate, 1),
-                        zipf_frequency(candidate, "en"),
-                        -len(candidate),
-                        candidate,
-                    ),
-                )
-            else:
-                lemma = form
-        else:
-            # WordNet intentionally focuses on open-class vocabulary; retain
-            # common closed-class words such as "the" and "of" directly.
-            lemma = form
-        lemma_bases = {
-            base
-            for bases in morphy(lemma).values()
-            for base in bases
-            if base != lemma
-        }
-        if lemma_bases & seen:
-            continue
-        if lemma in seen:
-            continue
-        seen.add(lemma)
-        selected.append((lemma, round(form_score, 2)))
-        if len(selected) == 20_000:
-            break
+    # Every candidate originates in the OEWN 2025 core lexicon. Rank the
+    # normalized lemmas directly with wordfreq, then use alphabetical order as
+    # the deterministic tie-breaker required by the product contract.
+    ranked = sorted(
+        ((lemma, round(zipf_frequency(lemma, "en"), 2)) for lemma in eligible_lemmas),
+        key=lambda item: (-item[1], item[0]),
+    )
+    selected = ranked[:20_000]
     if len(selected) != 20_000:
         raise RuntimeError(f"Expected 20,000 lemmas, found {len(selected)}")
 
@@ -112,6 +64,7 @@ def main() -> None:
         "datasetId": DATASET_ID,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "entryCount": len(entries),
+        "eligibleLemmaCount": len(eligible_lemmas),
         "sources": [
             {
                 "name": "Open English WordNet",
@@ -131,8 +84,8 @@ def main() -> None:
             "lowercase single-token alphabetic headwords",
             "one internal apostrophe allowed; hyphenated compounds excluded because wordfreq tokenizes them as phrases",
             "identical spellings merged across parts of speech",
-            "surface forms resolved to OEWN headwords, preferring morphological paradigms",
-            "descending frequency of each lemma's first observed wordfreq form",
+            "every entry is a lemma in the Open English WordNet 2025 core lexicon",
+            "descending wordfreq Zipf score with alphabetical tie-breaking",
         ],
     }
     args.manifest.write_text(json.dumps(manifest, indent=2), encoding="utf-8")

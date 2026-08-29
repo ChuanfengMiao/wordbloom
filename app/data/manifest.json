@@ -1,7 +1,8 @@
 {
-  "datasetId": "oewn-2025-wordfreq-en-20k-v1",
-  "generatedAt": "2026-08-28T17:59:30.102318+00:00",
+  "datasetId": "oewn-2025-wordfreq-en-20k-v2",
+  "generatedAt": "2026-08-29T17:24:42.798814+00:00",
   "entryCount": 20000,
+  "eligibleLemmaCount": 68838,
   "sources": [
     {
       "name": "Open English WordNet",
@@ -21,7 +22,7 @@
     "lowercase single-token alphabetic headwords",
     "one internal apostrophe allowed; hyphenated compounds excluded because wordfreq tokenizes them as phrases",
     "identical spellings merged across parts of speech",
-    "surface forms resolved to OEWN headwords, preferring morphological paradigms",
-    "descending frequency of each lemma's first observed wordfreq form"
+    "every entry is a lemma in the Open English WordNet 2025 core lexicon",
+    "descending wordfreq Zipf score with alphabetical tie-breaking"
   ]
 }

@@ -4,10 +4,16 @@ import { afterEach } from 'vitest';
 
 afterEach(() => cleanup());
 
+let reducedMotion = false;
+
+export function setReducedMotion(value: boolean) {
+  reducedMotion = value;
+}
+
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: (query: string) => ({
-    matches: false,
+    matches: query.includes('prefers-reduced-motion') ? reducedMotion : false,
     media: query,
     onchange: null,
     addListener: () => undefined,
@@ -16,6 +22,15 @@ Object.defineProperty(window, 'matchMedia', {
     removeEventListener: () => undefined,
     dispatchEvent: () => false,
   }),
+});
+
+Object.defineProperty(window, 'requestAnimationFrame', {
+  configurable: true,
+  value: (callback: FrameRequestCallback) => window.setTimeout(() => callback(performance.now()), 0),
+});
+Object.defineProperty(window, 'cancelAnimationFrame', {
+  configurable: true,
+  value: (handle: number) => window.clearTimeout(handle),
 });
 
 class TestResizeObserver {

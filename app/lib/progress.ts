@@ -1,5 +1,7 @@
-export const DATASET_ID = 'oewn-2025-wordfreq-en-20k-v1';
+export const DATASET_ID = 'oewn-2025-wordfreq-en-20k-v2';
+export const LEGACY_DATASET_ID = 'oewn-2025-wordfreq-en-20k-v1';
 export const STORAGE_KEY = `wordbloom:${DATASET_ID}:progress`;
+export const LEGACY_STORAGE_KEY = `wordbloom:${LEGACY_DATASET_ID}:progress`;
 
 export type WordStatus = 0 | 1 | 2;
 export type NamedStatus = 'known' | 'unknown';
@@ -19,6 +21,12 @@ export type StoredProgressV1 = {
   cursor: number;
   length: number;
   bits: string;
+};
+
+export type DatasetMigration = {
+  sourceDatasetId: string;
+  targetDatasetId: string;
+  targetIndexBySourceIndex: number[];
 };
 
 export function countStatuses(statuses: Uint8Array) {
@@ -70,10 +78,10 @@ export function serializeProgress(statuses: Uint8Array, cursor: number): StoredP
   };
 }
 
-export function parseStoredProgress(raw: string, expectedLength: number) {
+function parseStoredProgressForDataset(raw: string, expectedLength: number, datasetId: string) {
   const value = JSON.parse(raw) as Partial<StoredProgressV1>;
   if (value.schemaVersion !== 1) throw new Error('Unsupported progress version.');
-  if (value.datasetId !== DATASET_ID) throw new Error('Progress belongs to a different word list.');
+  if (value.datasetId !== datasetId) throw new Error('Progress belongs to a different word list.');
   if (value.length !== expectedLength || typeof value.bits !== 'string') {
     throw new Error('Progress data has the wrong word-list size.');
   }
@@ -82,6 +90,49 @@ export function parseStoredProgress(raw: string, expectedLength: number) {
     throw new Error('Progress cursor is invalid.');
   }
   return { statuses: decodeStatuses(value.bits, expectedLength), cursor };
+}
+
+export function parseStoredProgress(raw: string, expectedLength: number) {
+  return parseStoredProgressForDataset(raw, expectedLength, DATASET_ID);
+}
+
+function validateMigration(migration: DatasetMigration, expectedLength: number) {
+  if (migration.sourceDatasetId !== LEGACY_DATASET_ID || migration.targetDatasetId !== DATASET_ID) {
+    throw new Error('The dataset migration is incompatible.');
+  }
+  for (const targetIndex of migration.targetIndexBySourceIndex) {
+    if (!Number.isInteger(targetIndex) || targetIndex < -1 || targetIndex >= expectedLength) {
+      throw new Error('The dataset migration contains an invalid word index.');
+    }
+  }
+}
+
+function migrateStatuses(source: Uint8Array, migration: DatasetMigration, expectedLength: number) {
+  validateMigration(migration, expectedLength);
+  if (source.length !== migration.targetIndexBySourceIndex.length) {
+    throw new Error('The saved progress has the wrong legacy word-list size.');
+  }
+  const statuses = new Uint8Array(expectedLength);
+  source.forEach((status, sourceIndex) => {
+    const targetIndex = migration.targetIndexBySourceIndex[sourceIndex];
+    if (targetIndex >= 0) statuses[targetIndex] = status;
+  });
+  return statuses;
+}
+
+export function migrateStoredProgress(raw: string, migration: DatasetMigration, expectedLength: number) {
+  const source = parseStoredProgressForDataset(
+    raw,
+    migration.targetIndexBySourceIndex.length,
+    LEGACY_DATASET_ID,
+  );
+  const statuses = migrateStatuses(source.statuses, migration, expectedLength);
+  const mappedCursor = migration.targetIndexBySourceIndex[source.cursor] ?? -1;
+  const cursor =
+    mappedCursor >= 0 && statuses[mappedCursor] === 0
+      ? mappedCursor
+      : findNextUnmarked(statuses, Math.max(-1, mappedCursor - 1));
+  return { statuses, cursor, retained: countStatuses(statuses).reviewed };
 }
 
 export function createBackup(statuses: Uint8Array, cursor: number): ProgressBackupV1 {
@@ -99,29 +150,38 @@ export function createBackup(statuses: Uint8Array, cursor: number): ProgressBack
   };
 }
 
-export function parseBackup(raw: string, expectedLength: number) {
+export function parseBackup(raw: string, expectedLength: number, migration?: DatasetMigration) {
   const value = JSON.parse(raw) as Partial<ProgressBackupV1>;
   if (value.schemaVersion !== 1) throw new Error('This backup version is not supported.');
-  if (value.datasetId !== DATASET_ID) throw new Error('This backup uses a different word list.');
+  const isLegacy = value.datasetId === LEGACY_DATASET_ID && migration !== undefined;
+  if (value.datasetId !== DATASET_ID && !isLegacy) throw new Error('This backup uses a different word list.');
+  if (isLegacy) validateMigration(migration, expectedLength);
   if (!value.decisions || typeof value.decisions !== 'object' || Array.isArray(value.decisions)) {
     throw new Error('The backup decisions are missing or invalid.');
   }
+  const sourceLength = isLegacy ? migration.targetIndexBySourceIndex.length : expectedLength;
   const cursor = Number(value.cursor);
-  if (!Number.isInteger(cursor) || cursor < 0 || cursor > expectedLength) {
+  if (!Number.isInteger(cursor) || cursor < 0 || cursor > sourceLength) {
     throw new Error('The backup cursor is invalid.');
   }
   const statuses = new Uint8Array(expectedLength);
   for (const [rawIndex, status] of Object.entries(value.decisions)) {
     const index = Number(rawIndex);
-    if (!Number.isInteger(index) || index < 0 || index >= expectedLength) {
+    if (!Number.isInteger(index) || index < 0 || index >= sourceLength) {
       throw new Error('The backup contains an unknown word index.');
     }
     if (status !== 'known' && status !== 'unknown') {
       throw new Error('The backup contains an invalid word status.');
     }
-    statuses[index] = status === 'known' ? 1 : 2;
+    const targetIndex = isLegacy ? migration.targetIndexBySourceIndex[index] : index;
+    if (targetIndex >= 0) statuses[targetIndex] = status === 'known' ? 1 : 2;
   }
-  return { statuses, cursor };
+  const mappedCursor = isLegacy ? (migration.targetIndexBySourceIndex[cursor] ?? -1) : cursor;
+  const restoredCursor =
+    mappedCursor < expectedLength && mappedCursor >= 0 && statuses[mappedCursor] === 0
+      ? mappedCursor
+      : findNextUnmarked(statuses, Math.max(-1, mappedCursor - 1));
+  return { statuses, cursor: restoredCursor, migrated: isLegacy };
 }
 
 export function findNextUnmarked(statuses: Uint8Array, after: number) {
@@ -136,4 +196,10 @@ export function findNextUnmarked(statuses: Uint8Array, after: number) {
 
 export function calculateColumns(width: number, tileWidth = 146, gap = 12) {
   return Math.max(1, Math.floor((width + gap) / (tileWidth + gap)));
+}
+
+export function statusForSwipe(offsetX: number, velocityX: number, cardWidth: number): WordStatus {
+  if (Math.abs(offsetX) >= cardWidth * 0.22) return offsetX < 0 ? 1 : 2;
+  if (Math.abs(velocityX) >= 650) return velocityX < 0 ? 1 : 2;
+  return 0;
 }

@@ -19,19 +19,25 @@ import {
 } from 'lucide-react';
 import wordsData from '../data/words.json';
 import manifest from '../data/manifest.json';
+import legacyV1Map from '../data/legacy-v1-map.json';
 import {
   countStatuses,
   createBackup,
+  type DatasetMigration,
   findNextUnmarked,
+  LEGACY_STORAGE_KEY,
+  migrateStoredProgress,
   parseBackup,
   parseStoredProgress,
   serializeProgress,
   STORAGE_KEY,
+  statusForSwipe,
   type WordStatus,
 } from '../lib/progress';
 import { Overview, type WordEntry } from './Overview';
 
 const WORDS = wordsData as WordEntry[];
+const LEGACY_MIGRATION = legacyV1Map as DatasetMigration;
 type View = 'cards' | 'overview';
 type Modal = 'progress' | 'import' | 'reset' | null;
 type UndoState = { index: number; previousStatus: WordStatus; previousCursor: number } | null;
@@ -55,17 +61,24 @@ function stateLabel(status: WordStatus) {
 
 export function WordBloomApp() {
   const [view, setView] = useState<View>('cards');
-  const [statuses, setStatuses] = useState(() => new Uint8Array(WORDS.length));
+  const [statuses, setStatuses] = useState<Uint8Array>(() => new Uint8Array(WORDS.length));
   const [cursor, setCursor] = useState(0);
   const [hydrated, setHydrated] = useState(false);
   const [undoState, setUndoState] = useState<UndoState>(null);
   const [announcement, setAnnouncement] = useState('');
   const [modal, setModal] = useState<Modal>(null);
-  const [pendingImport, setPendingImport] = useState<{ statuses: Uint8Array; cursor: number } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{
+    statuses: Uint8Array;
+    cursor: number;
+    migrated: boolean;
+  } | null>(null);
   const [importError, setImportError] = useState('');
   const [animating, setAnimating] = useState(false);
   const cardStageRef = useRef<HTMLDivElement>(null);
+  const currentCardRef = useRef<HTMLElement>(null);
+  const focusCurrentCardRef = useRef(false);
   const importRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const latestState = useRef({ statuses, cursor });
   const reduceMotion = useReducedMotion();
   const x = useMotionValue(0);
@@ -78,25 +91,47 @@ export function WordBloomApp() {
   const currentStatus = currentWord ? (statuses[currentWord.id] as WordStatus) : 0;
   const progressPercent = (stats.reviewed / WORDS.length) * 100;
   const pendingStats = pendingImport ? countStatuses(pendingImport.statuses) : null;
+  const modalOpen = modal !== null;
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const restored = parseStoredProgress(raw, WORDS.length);
-        setStatuses(restored.statuses);
-        const restoredCursor =
-          restored.cursor < WORDS.length && restored.statuses[restored.cursor] === 0
-            ? restored.cursor
-            : findNextUnmarked(restored.statuses, Math.max(-1, restored.cursor - 1));
-        setCursor(restoredCursor);
+    const timeout = window.setTimeout(() => {
+      let attemptedKey = STORAGE_KEY;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const restored = parseStoredProgress(raw, WORDS.length);
+          const restoredCursor =
+            restored.cursor < WORDS.length && restored.statuses[restored.cursor] === 0
+              ? restored.cursor
+              : findNextUnmarked(restored.statuses, Math.max(-1, restored.cursor - 1));
+          latestState.current = { statuses: restored.statuses, cursor: restoredCursor };
+          setStatuses(restored.statuses);
+          setCursor(restoredCursor);
+        } else {
+          attemptedKey = LEGACY_STORAGE_KEY;
+          const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+          if (legacyRaw) {
+            const restored = migrateStoredProgress(legacyRaw, LEGACY_MIGRATION, WORDS.length);
+            latestState.current = { statuses: restored.statuses, cursor: restored.cursor };
+            setStatuses(restored.statuses);
+            setCursor(restored.cursor);
+            localStorage.setItem(
+              STORAGE_KEY,
+              JSON.stringify(serializeProgress(restored.statuses, restored.cursor)),
+            );
+            setAnnouncement(
+              `Your saved progress was updated for the corrected word list. ${restored.retained.toLocaleString()} classifications were retained.`,
+            );
+          }
+        }
+      } catch {
+        localStorage.removeItem(attemptedKey);
+        setAnnouncement('Saved progress could not be read, so a fresh local inventory was started.');
+      } finally {
+        setHydrated(true);
       }
-    } catch {
-      localStorage.removeItem(STORAGE_KEY);
-      setAnnouncement('Saved progress could not be read, so a fresh local inventory was started.');
-    } finally {
-      setHydrated(true);
-    }
+    }, 0);
+    return () => window.clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
@@ -123,6 +158,71 @@ export function WordBloomApp() {
     x.set(0);
   }, [cursor, x]);
 
+  useEffect(() => {
+    if (view !== 'cards' || !focusCurrentCardRef.current) return;
+    focusCurrentCardRef.current = false;
+    const frame = window.requestAnimationFrame(() => currentCardRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [cursor, view]);
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleDialogKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setModal(null);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = dialogRef.current;
+      if (!dialog) return;
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getAttribute('aria-hidden') !== 'true');
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (!dialog.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleDialogKey);
+    return () => {
+      document.removeEventListener('keydown', handleDialogKey);
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus();
+    };
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!modal) return;
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = dialogRef.current;
+      const initial = dialog?.querySelector<HTMLElement>('[data-modal-initial-focus]');
+      (initial ?? dialog)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [modal]);
+
   const classify = useCallback(
     (status: WordStatus) => {
       if (!currentWord || (status !== 1 && status !== 2)) return;
@@ -131,6 +231,7 @@ export function WordBloomApp() {
       nextStatuses[currentWord.id] = status;
       const nextCursor = findNextUnmarked(nextStatuses, currentWord.id);
       setUndoState({ index: currentWord.id, previousStatus, previousCursor: cursor });
+      latestState.current = { statuses: nextStatuses, cursor: nextCursor };
       setStatuses(nextStatuses);
       setCursor(nextCursor);
       setAnnouncement(
@@ -144,7 +245,7 @@ export function WordBloomApp() {
 
   const commitWithMotion = useCallback(
     (status: WordStatus) => {
-      if (animating || !currentWord) return;
+      if (!hydrated || animating || !currentWord) return;
       const direction = status === 1 ? -1 : 1;
       if (reduceMotion) {
         classify(status);
@@ -158,13 +259,14 @@ export function WordBloomApp() {
         setAnimating(false);
       });
     },
-    [animating, classify, currentWord, reduceMotion, x],
+    [animating, classify, currentWord, hydrated, reduceMotion, x],
   );
 
   const undo = useCallback(() => {
     if (!undoState || animating) return;
     const nextStatuses = statuses.slice();
     nextStatuses[undoState.index] = undoState.previousStatus;
+    latestState.current = { statuses: nextStatuses, cursor: undoState.previousCursor };
     setStatuses(nextStatuses);
     setCursor(undoState.previousCursor);
     setAnnouncement(`${WORDS[undoState.index].lemma} restored to ${stateLabel(undoState.previousStatus).toLowerCase()}.`);
@@ -190,6 +292,7 @@ export function WordBloomApp() {
   }, [commitWithMotion, modal, undo, view]);
 
   const openWord = (index: number) => {
+    focusCurrentCardRef.current = true;
     setCursor(index);
     setView('cards');
     setAnnouncement(`${WORDS[index].lemma} opened for review.`);
@@ -210,7 +313,7 @@ export function WordBloomApp() {
   const handleImport = async (file: File | undefined) => {
     if (!file) return;
     try {
-      const parsed = parseBackup(await file.text(), WORDS.length);
+      const parsed = parseBackup(await file.text(), WORDS.length, LEGACY_MIGRATION);
       setPendingImport(parsed);
       setImportError('');
       setModal('import');
@@ -225,24 +328,35 @@ export function WordBloomApp() {
 
   const confirmImport = () => {
     if (!pendingImport) return;
-    setStatuses(pendingImport.statuses);
-    setCursor(
+    const importedCursor =
       pendingImport.cursor < WORDS.length && pendingImport.statuses[pendingImport.cursor] === 0
         ? pendingImport.cursor
-        : findNextUnmarked(pendingImport.statuses, Math.max(-1, pendingImport.cursor - 1)),
+        : findNextUnmarked(pendingImport.statuses, Math.max(-1, pendingImport.cursor - 1));
+    latestState.current = { statuses: pendingImport.statuses, cursor: importedCursor };
+    setStatuses(pendingImport.statuses);
+    setCursor(importedCursor);
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(serializeProgress(pendingImport.statuses, importedCursor)),
     );
     setUndoState(null);
     setPendingImport(null);
     setModal(null);
-    setAnnouncement('Backup imported. Your local progress has been replaced.');
+    setAnnouncement(
+      pendingImport.migrated
+        ? 'Older backup imported and updated for the corrected word list. Your local progress has been replaced.'
+        : 'Backup imported. Your local progress has been replaced.',
+    );
   };
 
   const confirmReset = () => {
     const empty = new Uint8Array(WORDS.length);
+    latestState.current = { statuses: empty, cursor: 0 };
     setStatuses(empty);
     setCursor(0);
     setUndoState(null);
-    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeProgress(empty, 0)));
     setModal(null);
     setAnnouncement('All progress reset. Starting again with the first word.');
   };
@@ -252,7 +366,7 @@ export function WordBloomApp() {
     : [];
 
   return (
-    <main className={`app-shell view-${view}`}>
+    <main className={`app-shell view-${view}`} aria-busy={!hydrated}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <div className="ambient flower-dots" />
@@ -270,9 +384,14 @@ export function WordBloomApp() {
             Overview
           </button>
         </nav>
-        <button className="quiet-button progress-menu-button" type="button" onClick={() => setModal('progress')}>
+        <button
+          aria-label="Open progress and backup"
+          className="quiet-button progress-menu-button"
+          type="button"
+          onClick={() => setModal('progress')}
+        >
           <Settings2 aria-hidden="true" size={17} />
-          Progress
+          <span className="progress-label">Progress</span>
         </button>
       </header>
 
@@ -325,6 +444,7 @@ export function WordBloomApp() {
                   }
                   return (
                     <motion.article
+                      ref={currentCardRef}
                       className={`word-card current-card status-${status}`}
                       drag="x"
                       dragConstraints={{ left: 0, right: 0 }}
@@ -333,15 +453,15 @@ export function WordBloomApp() {
                       style={{ x, rotate }}
                       onDragEnd={(_, info) => {
                         const width = cardStageRef.current?.clientWidth ?? 520;
-                        const passesDistance = Math.abs(info.offset.x) >= width * 0.22;
-                        const passesVelocity = Math.abs(info.velocity.x) >= 650;
-                        if (passesDistance || passesVelocity) {
-                          commitWithMotion(info.offset.x < 0 ? 1 : 2);
+                        const swipeStatus = statusForSwipe(info.offset.x, info.velocity.x, width);
+                        if (swipeStatus) {
+                          commitWithMotion(swipeStatus);
                         } else {
                           animate(x, 0, { type: 'spring', stiffness: 420, damping: 32 });
                         }
                       }}
                       aria-label={`${currentWord.lemma}, rank ${currentWord.rank}, ${stateLabel(currentStatus)}`}
+                      tabIndex={-1}
                     >
                       <div className="card-topline">
                         <span className="rank-chip">#{currentWord.rank.toLocaleString()}</span>
@@ -363,11 +483,11 @@ export function WordBloomApp() {
               </div>
 
               <div className="decision-row">
-                <button className="decision known" type="button" onClick={() => commitWithMotion(1)} disabled={animating}>
+                <button className="decision known" type="button" onClick={() => commitWithMotion(1)} disabled={!hydrated || animating}>
                   <span className="keycap"><ChevronLeft aria-hidden="true" size={19} /></span>
                   <span><small>I know it</small>Known</span>
                 </button>
-                <button className="decision unknown" type="button" onClick={() => commitWithMotion(2)} disabled={animating}>
+                <button className="decision unknown" type="button" onClick={() => commitWithMotion(2)} disabled={!hydrated || animating}>
                   <span><small>Not yet</small>Unknown</span>
                   <span className="keycap"><ChevronRight aria-hidden="true" size={19} /></span>
                 </button>
@@ -405,8 +525,21 @@ export function WordBloomApp() {
 
       {modal && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setModal(null)}>
-          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-            <button className="modal-close" type="button" onClick={() => setModal(null)} aria-label="Close dialog"><X size={19} /></button>
+          <section
+            className="modal-card"
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-title"
+            tabIndex={-1}
+          >
+            <button
+              className="modal-close"
+              type="button"
+              onClick={() => setModal(null)}
+              aria-label="Close dialog"
+              data-modal-initial-focus
+            ><X aria-hidden="true" size={19} /></button>
 
             {modal === 'progress' && (
               <>

@@ -51,6 +51,7 @@ Extend the existing design tokens and components rather than introducing a compe
 - `app/lib/progress.ts`: status encoding, persistence schema, backup validation, counts, and layout helpers
 - `app/data/words.json`: committed 20,000-entry static dataset
 - `app/data/manifest.json`: source, version, generation, filtering, and license record
+- `app/data/legacy-v1-map.json`: one-time index map for migrating compatible v1 progress to the corrected v2 dataset
 - `scripts/generate-word-data.py`: reproducible offline dataset generator
 - `tests/setup.ts`: browser-environment test shims
 - `.openai/hosting.json`: Sites project identity and logical resource bindings only
@@ -72,8 +73,9 @@ The checked-in dataset is a product artifact. Do not regenerate it merely becaus
 ## State compatibility
 
 - `WordStatus`: `0` unmarked, `1` known, `2` unknown.
-- Local persistence uses a compact two-bit representation.
-- JSON backups currently use schema version `1` and must match the exact dataset ID.
+- Local persistence uses a compact two-bit representation under dataset ID `oewn-2025-wordfreq-en-20k-v2`.
+- Progress saved against `oewn-2025-wordfreq-en-20k-v1` is migrated by lemma index when the same lemma exists in v2; removed entries remain untouched in the legacy storage key.
+- JSON backups currently use schema version `1`; current backups must match the exact dataset ID, while v1 backups are accepted only through the committed v1-to-v2 migration map.
 - Any incompatible storage or backup change requires a deliberate migration or schema-version increment plus tests.
 
 ## Development workflow

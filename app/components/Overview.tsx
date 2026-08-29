@@ -65,12 +65,23 @@ export function Overview({
 
   const columns = calculateColumns(width, width < 560 ? 116 : 146, 12);
   const rowCount = Math.ceil(filteredWords.length / columns);
+  // TanStack Virtual manages its own mutable measurement cache.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 92,
+    initialRect: { width, height: 600 },
     overscan: 4,
   });
+  const virtualRows = virtualizer.getVirtualItems();
+  const visibleRows =
+    rowCount <= 10
+      ? Array.from({ length: rowCount }, (_, index) => ({ index, key: index, start: index * 92 }))
+      : virtualRows.length > 0
+        ? virtualRows
+        : Array.from({ length: Math.min(rowCount, 10) }, (_, index) => ({ index, key: index, start: index * 92 }));
+  const totalHeight = rowCount <= 10 ? rowCount * 92 : virtualizer.getTotalSize();
 
   return (
     <section className="overview-panel" aria-labelledby="overview-title">
@@ -123,8 +134,8 @@ export function Overview({
               <p>Try another search or filter.</p>
             </div>
           ) : (
-            <div className="virtual-canvas" style={{ height: virtualizer.getTotalSize() }}>
-              {virtualizer.getVirtualItems().map((virtualRow) => {
+            <div className="virtual-canvas" style={{ height: totalHeight }}>
+              {visibleRows.map((virtualRow) => {
                 const start = virtualRow.index * columns;
                 const rowWords = filteredWords.slice(start, start + columns);
                 return (
