@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import lemmas from './lemmas.json';
 import legacyMap from './legacy-v1-map.json';
 import manifest from './manifest.json';
 import words from './words.json';
@@ -12,6 +13,10 @@ describe('generated vocabulary data', () => {
       expect(word.rank).toBe(index + 1);
       expect(word.lemma).toMatch(/^[a-z]+(?:'[a-z]+)?$/);
     });
+  });
+
+  it('keeps the browser payload in exact lockstep with the canonical ranked dataset', () => {
+    expect(lemmas).toEqual(words.map((word) => word.lemma));
   });
 
   it('sorts by descending frequency with alphabetical tie-breaking', () => {

@@ -5,7 +5,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, CircleDashed, HelpCircle, Search, X } from 'lucide-react';
 import { calculateColumns, type WordStatus } from '../lib/progress';
 
-export type WordEntry = { id: number; lemma: string; rank: number; zipf: number };
+export type WordEntry = { id: number; lemma: string; rank: number };
 export type OverviewFilter = 'all' | 'unmarked' | 'known' | 'unknown';
 
 const FILTERS: { id: OverviewFilter; label: string }[] = [

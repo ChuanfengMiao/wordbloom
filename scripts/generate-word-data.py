@@ -21,6 +21,7 @@ OEWN_URL = "https://en-word.net/downloads/english-wordnet-2025.xml.gz"
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, default=Path("app/data/words.json"))
+    parser.add_argument("--lemmas", type=Path, default=Path("app/data/lemmas.json"))
     parser.add_argument("--manifest", type=Path, default=Path("app/data/manifest.json"))
     parser.add_argument("--wn-data", type=Path, required=True)
     args = parser.parse_args()
@@ -59,6 +60,11 @@ def main() -> None:
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(entries, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    args.lemmas.parent.mkdir(parents=True, exist_ok=True)
+    args.lemmas.write_text(
+        json.dumps([entry["lemma"] for entry in entries], ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
 
     manifest = {
         "datasetId": DATASET_ID,

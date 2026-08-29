@@ -50,6 +50,7 @@ Extend the existing design tokens and components rather than introducing a compe
 - `app/components/Overview.tsx`: searchable/filterable virtualized vocabulary grid
 - `app/lib/progress.ts`: status encoding, persistence schema, backup validation, counts, and layout helpers
 - `app/data/words.json`: committed 20,000-entry static dataset
+- `app/data/lemmas.json`: compact browser payload derived from the canonical dataset
 - `app/data/manifest.json`: source, version, generation, filtering, and license record
 - `app/data/legacy-v1-map.json`: one-time index map for migrating compatible v1 progress to the corrected v2 dataset
 - `scripts/generate-word-data.py`: reproducible offline dataset generator

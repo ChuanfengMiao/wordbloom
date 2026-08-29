@@ -17,7 +17,7 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import wordsData from '../data/words.json';
+import lemmasData from '../data/lemmas.json';
 import manifest from '../data/manifest.json';
 import legacyV1Map from '../data/legacy-v1-map.json';
 import {
@@ -36,7 +36,7 @@ import {
 } from '../lib/progress';
 import { Overview, type WordEntry } from './Overview';
 
-const WORDS = wordsData as WordEntry[];
+const WORDS: WordEntry[] = (lemmasData as string[]).map((lemma, id) => ({ id, lemma, rank: id + 1 }));
 const LEGACY_MIGRATION = legacyV1Map as DatasetMigration;
 type View = 'cards' | 'overview';
 type Modal = 'progress' | 'import' | 'reset' | null;

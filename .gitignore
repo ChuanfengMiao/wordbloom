@@ -19,6 +19,7 @@
 # misc
 .DS_Store
 *.pem
+*.tsbuildinfo
 
 # debug
 npm-debug.log*
@@ -40,5 +41,7 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.wordnet-data/
+/.tmp-npm-cache/
 /.openai/*.tar.gz
 /.openai/*.tgz
