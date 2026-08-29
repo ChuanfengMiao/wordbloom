@@ -29,6 +29,10 @@ yarn-error.log*
 # local environment
 .env*
 
+# private local user data
+/wordbloom-progress-*.json
+/progress-backup*.json
+
 # deployment and generated files
 .vercel
 next-env.d.ts
@@ -36,3 +40,5 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/.openai/*.tar.gz
+/.openai/*.tgz
