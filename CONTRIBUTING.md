@@ -31,6 +31,8 @@ Add focused tests for behavior changes. Do not commit build output, dependency d
 
 The checked-in word list is a versioned product artifact. Do not regenerate it because a local dependency version differs. Any intended change must preserve reproducibility, update the manifest, address storage compatibility, review representative samples, and pass all dataset and migration tests.
 
+Any change to data or data generation must also preserve `LICENSES.md`, `NOTICE`, `DATA_LICENSES.md`, `DISCLAIMER.md`, and the verbatim files in `THIRD_PARTY_NOTICES/`. Document new sources, applicable licenses, required attribution, and modifications before distribution. Do not assume the code's MIT license covers data.
+
 ## Commit and review style
 
 Prefer small, descriptive commits. Explain non-obvious product or compatibility decisions in a nearby document or comment. A pull request should state what changed, why, how it was verified, and whether it affects data or stored-progress compatibility.

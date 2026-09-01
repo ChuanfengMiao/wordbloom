@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A private, local-first inventory for classifying 20,000 general-English lemmas.",
   "private": true,
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSES.md",
   "engines": {
     "node": ">=22.13.0"
   },

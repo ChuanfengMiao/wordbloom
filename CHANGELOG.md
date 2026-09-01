@@ -10,3 +10,4 @@ First complete MVP release.
 - Corrected the vocabulary source pipeline to use the Open English WordNet 2025 core dataset and recorded reproducible source/licensing metadata.
 - Reduced the shipped vocabulary payload while retaining the canonical ranked dataset and lockstep validation.
 - Updated the application and build toolchain to versions with a clean npm security audit.
+- Added explicit mixed-license scoping, verbatim upstream notices, modification disclosure, and a personal-study/legal disclaimer before public source distribution.

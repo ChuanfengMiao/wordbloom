@@ -52,10 +52,12 @@ Extend the existing design tokens and components rather than introducing a compe
 - `app/data/words.json`: committed 20,000-entry static dataset
 - `app/data/lemmas.json`: compact browser payload derived from the canonical dataset
 - `app/data/manifest.json`: source, version, generation, filtering, and license record
+- `app/data/README.md`: in-directory redistribution warning and license pointers
 - `app/data/legacy-v1-map.json`: one-time index map for migrating compatible v1 progress to the corrected v2 dataset
 - `scripts/generate-word-data.py`: reproducible offline dataset generator
 - `tests/setup.ts`: browser-environment test shims
 - `.openai/hosting.json`: Sites project identity and logical resource bindings only
+- `LICENSES.md`, `NOTICE`, `DATA_LICENSES.md`, and `THIRD_PARTY_NOTICES/`: mixed-license scope, attribution, modification, and verbatim upstream terms
 
 Keep UI components focused. Put reusable state-format and calculation logic in `app/lib`, and keep generated data out of hand-written source files.
 
@@ -70,6 +72,8 @@ Keep UI components focused. Put reusable state-format and calculation logic in `
 - When regenerating, update the manifest and review both top-ranked samples and validation tests before committing.
 
 The checked-in dataset is a product artifact. Do not regenerate it merely because a local dependency version differs.
+
+Treat the vocabulary artifacts as separately licensed data, not MIT-licensed application code. Preserve all upstream attribution, modification, warranty, and share-alike notices when distributing the repository.
 
 ## State compatibility
 
@@ -115,6 +119,7 @@ Preserve tests for:
 - Never rewrite shared history or use destructive reset/checkout commands without explicit approval.
 - Do not commit `.env` files, credentials, deployment archives, local progress exports, dependency folders, coverage, or build output.
 - Keep generated source data, its manifest, the generator, tests, social image, and lockfile tracked.
+- Keep mixed-license summaries, the project notice and disclaimer, and verbatim upstream license/attribution files tracked with every public distribution.
 - Use small, descriptive commits. Inspect `git status` and staged changes before every commit.
 - The Sites source remote must contain no embedded credential. Authenticate pushes per command with the short-lived Sites credential.
 - For any deployable change, follow the Sites build and hosting workflow: validate, commit, push the exact commit, package the matching build, save a version, and deploy only after confirming the existing access policy.

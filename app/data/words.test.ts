@@ -54,6 +54,11 @@ describe('generated vocabulary data', () => {
     expect(manifest.entryCount).toBe(20_000);
     expect(manifest.eligibleLemmaCount).toBeGreaterThan(20_000);
     expect(manifest.sources[0]).toMatchObject({ name: 'Open English WordNet', version: '2025' });
+    expect(manifest.distribution).toMatchObject({
+      purpose: 'customized personal English study',
+    });
+    expect(manifest.distribution.wordBloomDataTerms).toContain('all upstream terms remain applicable');
+    expect(manifest.distribution.notices).toContain('THIRD_PARTY_NOTICES/');
     expect(manifest.filters).toContain('every entry is a lemma in the Open English WordNet 2025 core lexicon');
     expect(manifest.filters).toContain('descending wordfreq Zipf score with alphabetical tie-breaking');
   });

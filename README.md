@@ -1,8 +1,11 @@
 # WordBloom
 
-WordBloom is a private, local-first vocabulary inventory for classifying 20,000 general-English lemmas as **Known** or **Unknown**. It is designed for one person to move quickly through a stable word list, review every decision, and keep progress entirely in the browser.
+WordBloom is a customized personal English-study project: a private, local-first vocabulary inventory for classifying 20,000 general-English lemmas as **Known** or **Unknown**. It is designed for one person to move quickly through a stable word list, review every decision, and keep progress entirely in the browser.
 
 The MVP reports how many lemmas have been classified. It is not a statistically validated vocabulary-size estimate.
+
+> [!IMPORTANT]
+> This is a mixed-license repository. The application code is MIT-licensed, but the vocabulary artifacts incorporate and adapt third-party lexical and frequency data. Anyone redistributing or adapting those files must preserve the upstream attribution, license, modification, and warranty notices in [LICENSES.md](LICENSES.md), [NOTICE](NOTICE), [DATA_LICENSES.md](DATA_LICENSES.md), and [`THIRD_PARTY_NOTICES/`](THIRD_PARTY_NOTICES/). See [DISCLAIMER.md](DISCLAIMER.md) before reuse.
 
 ## MVP capabilities
 
@@ -76,7 +79,7 @@ python scripts/generate-word-data.py --wn-data .wordnet-data
 npm test
 ```
 
-Review the manifest and top-ranked sample before accepting regenerated output. See [DATA_LICENSES.md](DATA_LICENSES.md) for attribution and reuse terms.
+Review the manifest and top-ranked sample before accepting regenerated output. See [DATA_LICENSES.md](DATA_LICENSES.md) for attribution, modification history, and reuse terms.
 
 ## Project map
 
@@ -106,6 +109,6 @@ Definitions, examples, pronunciation, CEFR levels, spaced repetition, learning c
 
 ## License
 
-Application code is available under the [MIT License](LICENSE). The vocabulary datasets and derived mapping files have separate attribution and share-alike obligations described in [DATA_LICENSES.md](DATA_LICENSES.md).
+Application code is available under the [MIT License](LICENSE). The vocabulary datasets and derived mapping files are not covered by that MIT grant; their applicable terms and upstream rights are summarized in [LICENSES.md](LICENSES.md) and [DATA_LICENSES.md](DATA_LICENSES.md), with verbatim upstream texts in [`THIRD_PARTY_NOTICES/`](THIRD_PARTY_NOTICES/).
 
-Contributions are welcome through [CONTRIBUTING.md](CONTRIBUTING.md). Security reports should follow [SECURITY.md](SECURITY.md).
+This repository is customized for personal study and is provided without legal, educational, or accuracy warranties; read [DISCLAIMER.md](DISCLAIMER.md). Contributions are welcome through [CONTRIBUTING.md](CONTRIBUTING.md). Security reports should follow [SECURITY.md](SECURITY.md).

@@ -1,0 +1,32 @@
+WordBloom — third-party data and modification notice
+Copyright (c) 2026 WordBloom contributors
+
+WordBloom is a customized personal English-study project. Its vocabulary artifacts are not an independently authored dictionary and are not covered by the application's MIT license.
+
+OPEN ENGLISH WORDNET
+
+The vocabulary selection includes normalized lemmas from the Open English WordNet 2025 core edition.
+
+Copyright (c) 2019-present, The Open English WordNet Team.
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0).
+https://en-word.net/
+
+Canonical citation:
+John P. McCrae, Alexandre Rademaker, Francis Bond, Ewa Rudnicka, and Christiane Fellbaum (2019), “English WordNet 2019 – An Open-Source WordNet for English,” Proceedings of the 10th Global WordNet Conference (GWC 2019).
+
+Open English WordNet is derived from Princeton WordNet. This distribution preserves the Princeton WordNet notice and license in THIRD_PARTY_NOTICES/open-english-wordnet-WNDB_License.txt. No affiliation with or endorsement by the Open English WordNet team or Princeton University is claimed.
+
+WORDFREQ
+
+The vocabulary ranking and selection use English Zipf frequency values from wordfreq 3.1.1.
+
+wordfreq
+Copyright 2022 Robyn Speer
+
+The wordfreq software is Apache-2.0 licensed, and its included frequency data may be redistributed under CC BY-SA 4.0 subject to the complete upstream notice and source attributions preserved in THIRD_PARTY_NOTICES/wordfreq-NOTICE.md. No affiliation with or endorsement by Robyn Speer or the wordfreq contributors is claimed.
+
+WORDBLOOM MODIFICATIONS
+
+In 2026, WordBloom contributors selected the Open English WordNet 2025 core dataset, excluded its separate proper-name dataset, normalized and filtered headwords, merged identical spellings, ranked candidates using wordfreq 3.1.1 with alphabetical tie-breaking, selected 20,000 entries, emitted compact browser data, and created an exact-lemma legacy migration map.
+
+To the extent WordBloom contributors hold rights in this selection, arrangement, and adaptation, those contributions are offered under CC BY-SA 4.0. All upstream rights and conditions remain in force. See LICENSES.md, DATA_LICENSES.md, DISCLAIMER.md, app/data/manifest.json, and THIRD_PARTY_NOTICES/.

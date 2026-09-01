@@ -85,6 +85,17 @@ def main() -> None:
                 "url": "https://github.com/rspeer/wordfreq",
             },
         ],
+        "distribution": {
+            "purpose": "customized personal English study",
+            "wordBloomDataTerms": "CC BY-SA 4.0 for WordBloom-held rights in the selection and adaptation; all upstream terms remain applicable",
+            "notices": [
+                "LICENSES.md",
+                "NOTICE",
+                "DATA_LICENSES.md",
+                "DISCLAIMER.md",
+                "THIRD_PARTY_NOTICES/",
+            ],
+        },
         "filters": [
             "Open English WordNet 2025 core lemmas only",
             "lowercase single-token alphabetic headwords",

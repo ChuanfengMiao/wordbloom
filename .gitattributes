@@ -17,3 +17,7 @@
 *.webp binary
 *.woff binary
 *.woff2 binary
+
+# Keep verbatim upstream legal and attribution texts byte-for-byte. Some use
+# deliberate Markdown hard-break whitespace that should not be normalized.
+THIRD_PARTY_NOTICES/** -text -whitespace
