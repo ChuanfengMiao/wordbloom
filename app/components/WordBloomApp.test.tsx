@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import legacyMap from '../data/legacy-v1-map.json';
 import words from '../data/words.json';
@@ -8,6 +8,9 @@ import {
   encodeStatuses,
   LEGACY_DATASET_ID,
   LEGACY_STORAGE_KEY,
+  NOTES_STORAGE_KEY,
+  parseStoredNotes,
+  serializeNotes,
   serializeProgress,
   STORAGE_KEY,
 } from '../lib/progress';
@@ -17,6 +20,61 @@ import { WordBloomApp } from './WordBloomApp';
 const first = words[0];
 const second = words[1];
 const third = words[2];
+
+class MockSpeechSynthesisUtterance {
+  text: string;
+  lang = '';
+  rate = 1;
+  pitch = 1;
+  volume = 1;
+  voice: SpeechSynthesisVoice | null = null;
+  onstart: (() => void) | null = null;
+  onend: (() => void) | null = null;
+  onerror: ((event: { error: string }) => void) | null = null;
+
+  constructor(text: string) {
+    this.text = text;
+  }
+}
+
+let spokenUtterances: MockSpeechSynthesisUtterance[];
+let speechCancelCount: number;
+let speechVoices: SpeechSynthesisVoice[];
+let voicesChangedListener: (() => void) | null;
+
+function testVoice(name: string, lang: string, localService = false, isDefault = false) {
+  return { name, lang, localService, default: isDefault, voiceURI: name } as SpeechSynthesisVoice;
+}
+
+function installSpeechSynthesis() {
+  spokenUtterances = [];
+  speechCancelCount = 0;
+  speechVoices = [testVoice('Remote US', 'en-US', false, true), testVoice('Local US', 'en-US', true, true)];
+  voicesChangedListener = null;
+  Object.defineProperty(globalThis, 'SpeechSynthesisUtterance', {
+    configurable: true,
+    value: MockSpeechSynthesisUtterance,
+  });
+  Object.defineProperty(window, 'speechSynthesis', {
+    configurable: true,
+    value: {
+      getVoices: () => speechVoices,
+      speak: (utterance: MockSpeechSynthesisUtterance) => {
+        spokenUtterances.push(utterance);
+        utterance.onstart?.();
+      },
+      cancel: () => {
+        speechCancelCount += 1;
+      },
+      addEventListener: (event: string, listener: () => void) => {
+        if (event === 'voiceschanged') voicesChangedListener = listener;
+      },
+      removeEventListener: (event: string, listener: () => void) => {
+        if (event === 'voiceschanged' && voicesChangedListener === listener) voicesChangedListener = null;
+      },
+    },
+  });
+}
 
 async function renderHydrated() {
   const result = render(<WordBloomApp />);
@@ -28,6 +86,7 @@ describe('WordBloom interactions', () => {
   beforeEach(() => {
     localStorage.clear();
     setReducedMotion(true);
+    installSpeechSynthesis();
   });
 
   it('keeps only three cards mounted and maps buttons to the requested states', async () => {
@@ -65,6 +124,144 @@ describe('WordBloom interactions', () => {
     fireEvent.keyDown(window, { key: 'ArrowRight' });
     fireEvent.keyDown(window, { key: 'z', metaKey: true });
     expect(screen.getByLabelText(new RegExp(`${second.lemma}, rank 2, unmarked`, 'i'))).toBeInTheDocument();
+  });
+
+  it('plays and replays the current word with the preferred American voice', async () => {
+    const user = userEvent.setup();
+    await renderHydrated();
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(spokenUtterances).toHaveLength(1);
+    expect(spokenUtterances[0]).toMatchObject({
+      text: first.lemma,
+      lang: 'en-US',
+      rate: 0.9,
+      pitch: 1,
+      volume: 1,
+      voice: speechVoices[1],
+    });
+
+    const cancelsBeforeReplay = speechCancelCount;
+    await user.click(screen.getByRole('button', { name: new RegExp(`replay american pronunciation of ${first.lemma}`, 'i') }));
+    expect(spokenUtterances).toHaveLength(2);
+    expect(speechCancelCount).toBeGreaterThan(cancelsBeforeReplay);
+  });
+
+  it('refreshes delayed voices and reports speech failures', async () => {
+    const user = userEvent.setup();
+    speechVoices = [];
+    await renderHydrated();
+    const delayedVoice = testVoice('Delayed US', 'en-US', true, true);
+    speechVoices = [delayedVoice];
+    act(() => voicesChangedListener?.());
+    await user.click(screen.getByRole('button', { name: new RegExp(`play american pronunciation of ${first.lemma}`, 'i') }));
+    expect(spokenUtterances.at(-1)?.voice).toBe(delayedVoice);
+
+    act(() => spokenUtterances.at(-1)?.onerror?.({ error: 'voice-unavailable' }));
+    expect(screen.getByRole('status')).toHaveTextContent(new RegExp(`pronunciation for ${first.lemma} could not be played`, 'i'));
+  });
+
+  it('cancels active pronunciation when the current word changes', async () => {
+    await renderHydrated();
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    const cancelsBeforeNavigation = speechCancelCount;
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(screen.getByLabelText(new RegExp(`${second.lemma}, rank 2, unmarked`, 'i'))).toBeInTheDocument();
+    expect(speechCancelCount).toBeGreaterThan(cancelsBeforeNavigation);
+  });
+
+  it('disables pronunciation controls and announces unsupported browsers', async () => {
+    Object.defineProperty(globalThis, 'SpeechSynthesisUtterance', { configurable: true, value: undefined });
+    Object.defineProperty(window, 'speechSynthesis', { configurable: true, value: undefined });
+    await renderHydrated();
+    expect(screen.getByRole('button', { name: new RegExp(`play american pronunciation of ${first.lemma}`, 'i') })).toBeDisabled();
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(screen.getByRole('status')).toHaveTextContent(/pronunciation is not available/i);
+  });
+
+  it('flips to an editable note, preserves arrow editing, autosaves, and restores focus', async () => {
+    const user = userEvent.setup();
+    const { container } = await renderHydrated();
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    const editor = screen.getByRole('textbox', { name: /your note/i });
+    await waitFor(() => expect(editor).toHaveFocus());
+    expect(container.querySelector('.current-card')).toHaveClass('is-flipped');
+
+    await user.type(editor, 'Remember this cue');
+    fireEvent.keyDown(editor, { key: 'ArrowLeft' });
+    fireEvent.keyDown(editor, { key: 'ArrowDown' });
+    expect(screen.getByLabelText(new RegExp(`${first.lemma}, rank 1, unmarked`, 'i'))).toBeInTheDocument();
+
+    await waitFor(() => expect(localStorage.getItem(NOTES_STORAGE_KEY)).not.toBeNull(), { timeout: 1_000 });
+    expect(parseStoredNotes(localStorage.getItem(NOTES_STORAGE_KEY)!, words.length)[first.id]).toBe('Remember this cue');
+
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    const card = screen.getByLabelText(new RegExp(`${first.lemma}, rank 1, unmarked, front side`, 'i'));
+    await waitFor(() => expect(card).toHaveFocus());
+  });
+
+  it('flushes a back-side note before pointer classification advances', async () => {
+    const user = userEvent.setup();
+    await renderHydrated();
+    await user.click(screen.getByRole('button', { name: new RegExp(`open notes for ${first.lemma}`, 'i') }));
+    const editor = screen.getByRole('textbox', { name: /your note/i });
+    await user.type(editor, 'Saved before advancing');
+    await user.click(screen.getByRole('button', { name: /i know itknown/i }));
+
+    expect(screen.getByLabelText(new RegExp(`${second.lemma}, rank 2, unmarked`, 'i'))).toBeInTheDocument();
+    expect(parseStoredNotes(localStorage.getItem(NOTES_STORAGE_KEY)!, words.length)[first.id]).toBe('Saved before advancing');
+  });
+
+  it('keeps an in-memory note and announces local-storage write failures', async () => {
+    const user = userEvent.setup();
+    await renderHydrated();
+    const originalSetItem = Storage.prototype.setItem;
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+      if (key === NOTES_STORAGE_KEY) throw new DOMException('Quota exceeded', 'QuotaExceededError');
+      return originalSetItem.call(this, key, value);
+    });
+    try {
+      await user.click(screen.getByRole('button', { name: new RegExp(`open notes for ${first.lemma}`, 'i') }));
+      const editor = screen.getByRole('textbox', { name: /your note/i });
+      await user.type(editor, 'Still in memory');
+      fireEvent.blur(editor);
+      expect(editor).toHaveValue('Still in memory');
+      expect(screen.getByRole('status')).toHaveTextContent(/could not be saved on this device/i);
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it('flushes the current note before exporting a combined backup', async () => {
+    const user = userEvent.setup();
+    let exportedBlob: Blob | null = null;
+    const originalCreateObjectUrl = Object.getOwnPropertyDescriptor(URL, 'createObjectURL');
+    const originalRevokeObjectUrl = Object.getOwnPropertyDescriptor(URL, 'revokeObjectURL');
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn((blob: Blob) => {
+        exportedBlob = blob;
+        return 'blob:wordbloom-test';
+      }),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    const linkClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    try {
+      await renderHydrated();
+      await user.click(screen.getByRole('button', { name: new RegExp(`open notes for ${first.lemma}`, 'i') }));
+      await user.type(screen.getByRole('textbox', { name: /your note/i }), 'Export this cue');
+      await user.click(screen.getByRole('button', { name: /open progress and backup/i }));
+      await user.click(screen.getByRole('button', { name: /export backup/i }));
+
+      expect(exportedBlob).toBeInstanceOf(Blob);
+      expect(parseStoredNotes(localStorage.getItem(NOTES_STORAGE_KEY)!, words.length)[first.id]).toBe('Export this cue');
+      expect(screen.getByRole('status')).toHaveTextContent(/progress and notes backup downloaded/i);
+    } finally {
+      linkClick.mockRestore();
+      if (originalCreateObjectUrl) Object.defineProperty(URL, 'createObjectURL', originalCreateObjectUrl);
+      else delete (URL as Partial<typeof URL>).createObjectURL;
+      if (originalRevokeObjectUrl) Object.defineProperty(URL, 'revokeObjectURL', originalRevokeObjectUrl);
+      else delete (URL as Partial<typeof URL>).revokeObjectURL;
+    }
   });
 
   it('searches, filters, labels, revisits, and reclassifies overview words', async () => {
@@ -120,16 +317,18 @@ describe('WordBloom interactions', () => {
 
   it('moves focus into each dialog step and supports resetting progress', async () => {
     const user = userEvent.setup();
+    localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(serializeNotes({ 0: 'remove me' }, words.length)));
     await renderHydrated();
     await user.click(screen.getByRole('button', { name: /i know itknown/i }));
     await user.click(screen.getByRole('button', { name: /open progress and backup/i }));
     await user.click(screen.getByRole('button', { name: /reset all/i }));
 
-    expect(screen.getByRole('dialog', { name: /reset all progress/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /reset all local data/i })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole('button', { name: /close dialog/i })).toHaveFocus());
     await user.click(screen.getByRole('button', { name: /reset everything/i }));
     expect(screen.getByText('0', { selector: '.summary-strip > div:first-child strong' })).toBeInTheDocument();
     expect(screen.getByLabelText(new RegExp(`${first.lemma}, rank 1, unmarked`, 'i'))).toBeInTheDocument();
+    expect(localStorage.getItem(NOTES_STORAGE_KEY)).toBeNull();
   });
 
   it('imports a validated backup through the confirmation dialog', async () => {
@@ -137,19 +336,22 @@ describe('WordBloom interactions', () => {
     const { container } = await renderHydrated();
     const statuses = new Uint8Array(words.length);
     statuses[first.id] = 1;
-    const file = new File([JSON.stringify(createBackup(statuses, second.id))], 'backup.json', {
+    const backup = createBackup(statuses, second.id, { 0: 'Imported cue' });
+    const file = new File([JSON.stringify(backup)], 'backup.json', {
       type: 'application/json',
     });
-    Object.defineProperty(file, 'text', { value: () => Promise.resolve(JSON.stringify(createBackup(statuses, second.id))) });
+    Object.defineProperty(file, 'text', { value: () => Promise.resolve(JSON.stringify(backup)) });
 
     const input = container.querySelector<HTMLInputElement>('input[type="file"]');
     expect(input).not.toBeNull();
     fireEvent.change(input!, { target: { files: [file] } });
-    expect(await screen.findByRole('dialog', { name: /replace local progress/i })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: /replace local data/i })).toBeInTheDocument();
+    expect(screen.getByText(/1 notes in this backup/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /replace progress/i }));
 
     expect(screen.getByText('1', { selector: '.summary-strip > div:nth-child(2) strong' })).toBeInTheDocument();
     expect(screen.getByLabelText(new RegExp(`${second.lemma}, rank 2, unmarked`, 'i'))).toBeInTheDocument();
+    expect(parseStoredNotes(localStorage.getItem(NOTES_STORAGE_KEY)!, words.length)[first.id]).toBe('Imported cue');
   });
 
   it('migrates compatible v1 local progress and persists it under the v2 key', async () => {

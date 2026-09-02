@@ -96,8 +96,17 @@ button { color: inherit; }
 .card-back { pointer-events: none; }
 .depth-2 { transform: translateY(18px) scale(.93); opacity: .36; }
 .depth-1 { transform: translateY(10px) scale(.965); opacity: .64; }
-.current-card { touch-action: pan-y; user-select: none; cursor: grab; padding: 28px 31px 25px; display: flex; flex-direction: column; box-shadow: 0 28px 70px rgba(64, 51, 111, .14), 0 5px 15px rgba(64, 51, 111, .05); }
+.current-card { touch-action: pan-y; user-select: none; cursor: grab; padding: 0; display: block; perspective: 1200px; box-shadow: 0 28px 70px rgba(64, 51, 111, .14), 0 5px 15px rgba(64, 51, 111, .05); }
 .current-card:active { cursor: grabbing; }
+.current-card.is-flipped { cursor: default; }
+.card-flipper { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; will-change: transform; }
+.card-face { position: absolute; inset: 0; padding: 28px 31px 25px; display: flex; flex-direction: column; overflow: hidden; border-radius: inherit; background: inherit; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.note-card-face { transform: rotateY(180deg); background: linear-gradient(145deg, #fbf9ff, #eee9fa); }
+.reduced-flip { transform: none !important; }
+.reduced-flip .card-face { transform: none; backface-visibility: visible; transition: opacity .14s ease; }
+.reduced-flip .note-card-face { opacity: 0; pointer-events: none; }
+.current-card.is-flipped .reduced-flip .card-front-face { opacity: 0; pointer-events: none; }
+.current-card.is-flipped .reduced-flip .note-card-face { opacity: 1; pointer-events: auto; }
 .word-card.status-0 { background: linear-gradient(145deg, #f7f7f8, #eceef2); }
 .word-card.status-1 { background: linear-gradient(145deg, #f1faf3, var(--known)); }
 .word-card.status-2 { background: linear-gradient(145deg, #fff4f7, var(--unknown)); }
@@ -110,7 +119,34 @@ button { color: inherit; }
 .question { margin: 0 0 13px; color: var(--muted); font-size: 14px; font-weight: 650; }
 .word-center h2 { margin: 0; font-size: clamp(52px, 10vw, 74px); line-height: .98; letter-spacing: -.055em; }
 .known-rule { width: min(330px, 90%); margin: 21px auto 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
-.drag-hint { margin: 0; text-align: center; color: #9b9eaa; font-size: 11px; }
+.card-footer { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; }
+.drag-hint { margin: 0; color: #9b9eaa; font-size: 11px; }
+.card-tools { display: flex; gap: 7px; }
+.card-tool { min-width: 94px; min-height: 44px; padding: 7px 9px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 6px; border: 1px solid rgba(98,86,163,.13); border-radius: 14px; background: rgba(255,255,255,.68); color: #5c557c; cursor: pointer; font: inherit; font-size: 10px; font-weight: 900; transition: transform .14s ease, background .14s ease, box-shadow .14s ease; }
+.card-tool:hover:not(:disabled), .show-front-button:hover, .icon-card-tool:hover:not(:disabled) { transform: translateY(-1px); background: rgba(255,255,255,.92); box-shadow: 0 7px 16px rgba(72,58,121,.08); }
+.card-tool:active:not(:disabled), .show-front-button:active, .icon-card-tool:active:not(:disabled) { transform: scale(.97); }
+.card-tool:disabled, .icon-card-tool:disabled { cursor: not-allowed; opacity: .45; }
+.card-tool.speaking, .icon-card-tool.speaking { color: #5d50a2; background: #e8e2fa; }
+.card-tool kbd, .show-front-button kbd { min-width: 20px; padding: 2px 5px; border: 1px solid rgba(98,86,163,.17); border-radius: 6px; background: rgba(255,255,255,.7); color: #77718f; font: inherit; font-size: 9px; }
+.note-card-face { user-select: text; }
+.note-card-topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.note-card-topline > div:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.note-card-topline p { margin: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note-card-topline p strong { color: var(--ink); font-size: 14px; }
+.note-card-actions { display: flex; align-items: center; gap: 7px; }
+.icon-card-tool, .show-front-button { min-height: 44px; border: 1px solid rgba(98,86,163,.13); border-radius: 13px; background: rgba(255,255,255,.68); color: #5c557c; cursor: pointer; transition: transform .14s ease, background .14s ease, box-shadow .14s ease; }
+.icon-card-tool { width: 44px; display: grid; place-items: center; }
+.show-front-button { padding: 7px 9px; display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 10px; font-weight: 900; }
+.note-label { margin-top: 20px; color: #6256a3; font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.note-editor { width: 100%; flex: 1; min-height: 0; margin-top: 8px; resize: none; touch-action: auto; user-select: text; border: 1px solid rgba(98,86,163,.16); border-radius: 18px; padding: 15px 16px; outline: none; background: rgba(255,255,255,.72); color: var(--ink); font: inherit; font-size: 14px; line-height: 1.55; box-shadow: inset 0 1px 2px rgba(57,45,97,.03); }
+.note-editor::placeholder { color: #a5a1b4; }
+.note-editor:focus { border-color: rgba(129,117,199,.55); box-shadow: 0 0 0 3px rgba(129,117,199,.13); }
+.note-meta { margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
+.note-save-state { display: inline-flex; align-items: center; gap: 5px; font-weight: 850; }
+.note-save-state::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #71ae83; }
+.note-save-state.saving::before { background: #aa9bd8; }
+.note-save-state.error { color: #a0516b; }
+.note-save-state.error::before { background: #ce6f8e; }
 .swipe-hint { position: absolute; z-index: 5; top: 30px; display: flex; align-items: center; gap: 7px; padding: 9px 12px; border-radius: 12px; font-size: 12px; font-weight: 900; pointer-events: none; }
 .known-swipe-hint { left: 25px; color: #367149; background: #d9f0df; }
 .unknown-swipe-hint { right: 25px; color: #9a4c66; background: #f5d8e2; }
@@ -188,6 +224,7 @@ button { color: inherit; }
 .modal-stats strong, .modal-stats span { display: block; }
 .modal-stats strong { font-size: 18px; font-variant-numeric: tabular-nums; }
 .modal-stats span { margin-top: 2px; color: var(--muted); font-size: 9px; font-weight: 800; }
+.modal-note-count { margin: -6px 0 18px; display: flex; align-items: center; justify-content: center; gap: 6px; color: var(--muted); font-size: 11px; font-weight: 800; }
 .modal-actions { display: grid; gap: 8px; }
 .modal-actions button, .confirm-row button, .full-action { min-height: 43px; border-radius: 13px; padding: 10px 13px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font-size: 13px; font-weight: 850; }
 .primary-action { border: 1px solid var(--ink); background: var(--ink); color: white; }
@@ -222,8 +259,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, .current-card:focus-
   .progress-heading { align-items: start; }
   .progress-heading p:not(.progress-number) { display: none; }
   .card-stage { height: 330px; }
-  .current-card { padding: 23px 22px 21px; }
+  .card-face { padding: 23px 22px 21px; }
   .word-card { border-radius: 27px; }
+  .card-footer { grid-template-columns: 1fr; gap: 7px; }
+  .drag-hint { display: none; }
+  .card-tools { justify-content: center; }
+  .card-tool { min-width: 100px; }
+  .note-card-topline { gap: 9px; }
+  .note-card-topline > div:first-child { display: block; }
+  .note-card-topline p { margin-top: 6px; max-width: 120px; }
+  .show-front-button { width: 44px; padding: 0; justify-content: center; }
+  .show-front-button > :not(svg) { display: none; }
+  .note-label { margin-top: 14px; }
   .decision { min-height: 61px; padding: 9px 12px; }
   .below-actions { display: flex; justify-content: space-between; }
   .gentle-note { font-size: 9px; }
@@ -246,4 +293,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, .current-card:focus-
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  .reduced-flip .card-face { transition-duration: .14s !important; }
 }

@@ -14,4 +14,4 @@ Include the affected commit, reproduction conditions, potential impact, and a mi
 
 WordBloom intentionally has no accounts, analytics, cloud synchronization, application backend, or remote progress storage. This sharply limits its exposed surface but does not remove browser, dependency, supply-chain, import-validation, or deployment risks.
 
-Treat exported progress as private. Never attach a real progress export to a public issue. The project ignores common export filenames, environment files, private keys, build output, and deployment archives, but contributors must still inspect staged changes before committing.
+Treat exported progress and notes as private. Never attach a real backup export to a public issue. The project ignores common export filenames, environment files, private keys, build output, and deployment archives, but contributors must still inspect staged changes before committing.

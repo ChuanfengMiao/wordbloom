@@ -1,6 +1,6 @@
 # WordBloom
 
-WordBloom is a customized personal English-study project: a private, local-first vocabulary inventory for classifying 20,000 general-English lemmas as **Known** or **Unknown**. It is designed for one person to move quickly through a stable word list, review every decision, and keep progress entirely in the browser.
+WordBloom is a customized personal English-study project: a private, local-first vocabulary inventory for classifying 20,000 general-English lemmas as **Known** or **Unknown**. It is designed for one person to move quickly through a stable word list, hear device-provided American English pronunciation, keep private per-word notes, review every decision, and keep progress entirely in the browser.
 
 The MVP reports how many lemmas have been classified. It is not a statistically validated vocabulary-size estimate.
 
@@ -10,6 +10,8 @@ The MVP reports how many lemmas have been classified. It is not a statistically 
 ## MVP capabilities
 
 - Classify by swipe, keyboard, or buttons.
+- Play the current lemma with the browser's American English speech voice.
+- Flip the current card to write an autosaved private note.
 - Keep no more than three cards mounted at once.
 - Undo the most recent classification with the button or `Ctrl/Cmd+Z`.
 - Resume at the next unmarked lemma.
@@ -25,6 +27,9 @@ The MVP reports how many lemmas have been classified. It is not a statistically 
 | --- | --- | --- | --- |
 | Known | Swipe left | `ArrowLeft` | Left / Known |
 | Unknown | Swipe right | `ArrowRight` | Right / Unknown |
+| Listen | — | `ArrowUp` | Listen |
+| Open notes | — | `ArrowDown` | Notes |
+| Close notes | — | `Escape` | Show front |
 | Undo | — | `Ctrl/Cmd+Z` | Undo |
 
 A swipe commits after crossing 22% of the card width or reaching 650 px/s in the swipe direction. Otherwise, the card springs back.
@@ -33,9 +38,9 @@ A swipe commits after crossing 22% of the card width or reaching 650 px/s in the
 
 ## Privacy model
 
-WordBloom has no account system, analytics, tracking, cloud synchronization, or application backend. Vocabulary data ships as static assets. Progress is stored in browser `localStorage`; backup files are created only when the user explicitly exports them.
+WordBloom has no account system, analytics, tracking, cloud synchronization, or application backend. Vocabulary data ships as static assets. Classifications and notes are stored in browser `localStorage`; backup files are created only when the user explicitly exports them. Pronunciation uses the browser's speech synthesizer and does not contact an application service.
 
-Progress exports can reveal vocabulary decisions. They are intentionally ignored by Git and should be handled as private personal data. Clearing site storage without first exporting a backup permanently removes local progress.
+Backups can reveal vocabulary decisions and personal notes. They are intentionally ignored by Git and should be handled as private personal data. Clearing site storage without first exporting a backup permanently removes local progress and notes.
 
 ## Run locally
 
@@ -57,7 +62,7 @@ Then open the local URL printed by the development server.
 npm run check
 ```
 
-This runs ESLint, TypeScript, the Vitest regression suite, and a production build. The automated tests cover dataset integrity, gestures, buttons, keyboard controls, undo, completion, persistence, backup validation, migration, overview search/filter/virtualization, the three-card limit, focus management, ARIA behavior, and reduced motion.
+This runs ESLint, TypeScript, the Vitest regression suite, and a production build. The automated tests cover dataset integrity, gestures, buttons, keyboard controls, pronunciation, card flipping, notes, undo, completion, persistence, backup validation, migration, overview search/filter/virtualization, the three-card limit, focus management, ARIA behavior, and reduced motion.
 
 ## Data methodology
 
@@ -85,17 +90,18 @@ Review the manifest and top-ranked sample before accepting regenerated output. S
 
 - `app/components/WordBloomApp.tsx` — app shell, card workflow, persistence, import/export, and dialogs
 - `app/components/Overview.tsx` — searchable, filterable, virtualized vocabulary grid
-- `app/lib/progress.ts` — status encoding, schema validation, migration, counts, and layout helpers
+- `app/lib/progress.ts` — status/note encoding, schema validation, migration, backups, counts, and layout helpers
+- `app/lib/speech.ts` — American English voice selection and utterance configuration
 - `app/data/` — canonical data, compact payload, manifest, and v1 migration map
 - `scripts/generate-word-data.py` — offline deterministic dataset generator
 - `tests/setup.ts` — browser-environment test shims
 - `.openai/hosting.json` — Sites project identity and logical bindings; it contains no credential
 
-The app uses React, TypeScript, Vinext/Vite, Tailwind CSS, Motion, and TanStack Virtual. More detail is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+The app uses React, TypeScript, Vinext/Vite, Tailwind CSS, Motion, and TanStack Virtual. More detail is in [Documents/ARCHITECTURE.md](Documents/ARCHITECTURE.md).
 
 ## Persistence compatibility
 
-Statuses use two bits per lemma: `0` unmarked, `1` known, and `2` unknown. Local storage and JSON backups use schema version 1 and are bound to the exact dataset ID. Incompatible format changes require an explicit migration or schema-version increment with tests.
+Statuses use two bits per lemma: `0` unmarked, `1` known, and `2` unknown. Compact classification storage remains at schema version 1. Notes use a separate dataset-bound schema-version-1 record with a 1,000-character limit per lemma. New JSON backups use schema version 2 to include sparse notes; schema-version-1 backups remain importable with an empty note set. Incompatible format changes require an explicit migration or schema-version increment with tests.
 
 The v1-to-v2 migration retains classifications only where the exact normalized lemma exists in both datasets. It never transfers a decision by rank alone.
 
@@ -105,7 +111,7 @@ The maintained Sites deployment is owner-only because progress is private. The p
 
 ## Scope
 
-Definitions, examples, pronunciation, CEFR levels, spaced repetition, learning content, accounts, analytics, and cloud sync are intentionally outside the MVP.
+Definitions, examples, phonetic transcription, selectable speech voices, CEFR levels, spaced repetition, learning content, note search/filtering, accounts, analytics, and cloud sync remain outside the current product scope.
 
 ## License
 

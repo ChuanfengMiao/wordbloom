@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0 — 2026-09-02
+
+- Added device-provided American English pronunciation through `ArrowUp` and on-card Listen controls.
+- Added an accessible two-sided card with `ArrowDown`, private per-word notes, autosave, and reduced-motion fallback.
+- Added dataset-bound note persistence and schema-version-2 backups while retaining schema-version-1 import compatibility.
+- Consolidated architecture and construction plans under `Documents/`.
+
 ## 1.0.0 — 2026-08-29
 
 First complete MVP release.

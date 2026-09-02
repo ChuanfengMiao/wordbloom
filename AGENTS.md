@@ -14,7 +14,7 @@ The MVP measures classified lemmas. Do not describe its result as a statisticall
 - Preserve the meaning of **Known**: the user can recall at least one ordinary meaning and recognize the lemma in context.
 - Treat homographs with the same normalized spelling as one inventory item.
 - Keep the word list faithful to general English; do not silently sanitize legitimate vocabulary.
-- Definitions, examples, pronunciation, CEFR levels, spaced repetition, and learning content are future-scope features unless explicitly requested.
+- Definitions, examples, phonetic transcription, selectable speech voices, CEFR levels, spaced repetition, and learning content are future-scope features unless explicitly requested.
 - Protect privacy. Never commit exported progress, local environment files, credentials, tokens, or personal data.
 
 ## Interaction invariants
@@ -23,6 +23,9 @@ These behaviors are intentional and must not drift:
 
 - Swipe left, press `ArrowLeft`, or use the left button for **Known**.
 - Swipe right, press `ArrowRight`, or use the right button for **Unknown**.
+- Press `ArrowUp` or use the Listen button for device-provided `en-US` pronunciation.
+- Press `ArrowDown` or use the Notes button to open the current card's back; use Show front or `Escape` to close it.
+- Preserve normal arrow-key editing while the note textarea has focus, and disable swipe dragging while the back is open.
 - A swipe commits after 22% of card width or 650 px/s directional velocity; otherwise it springs back.
 - Mount no more than the current card and the next two cards.
 - Support one-step undo through the button and `Ctrl/Cmd+Z`.
@@ -49,6 +52,7 @@ Extend the existing design tokens and components rather than introducing a compe
 - `app/components/WordBloomApp.tsx`: application shell, card workflow, persistence, import/export, and dialogs
 - `app/components/Overview.tsx`: searchable/filterable virtualized vocabulary grid
 - `app/lib/progress.ts`: status encoding, persistence schema, backup validation, counts, and layout helpers
+- `app/lib/speech.ts`: American English voice selection and utterance configuration
 - `app/data/words.json`: committed 20,000-entry static dataset
 - `app/data/lemmas.json`: compact browser payload derived from the canonical dataset
 - `app/data/manifest.json`: source, version, generation, filtering, and license record
@@ -80,7 +84,8 @@ Treat the vocabulary artifacts as separately licensed data, not MIT-licensed app
 - `WordStatus`: `0` unmarked, `1` known, `2` unknown.
 - Local persistence uses a compact two-bit representation under dataset ID `oewn-2025-wordfreq-en-20k-v2`.
 - Progress saved against `oewn-2025-wordfreq-en-20k-v1` is migrated by lemma index when the same lemma exists in v2; removed entries remain untouched in the legacy storage key.
-- JSON backups currently use schema version `1`; current backups must match the exact dataset ID, while v1 backups are accepted only through the committed v1-to-v2 migration map.
+- Notes use a separate schema-version-1 local record, keyed by lemma index and bound to the current dataset, with a 1,000-character limit per lemma.
+- JSON backups use schema version `2` for sparse decisions plus sparse notes. Schema-version-1 backups remain importable with no notes; legacy-dataset decisions are accepted only through the committed v1-to-v2 migration map.
 - Any incompatible storage or backup change requires a deliberate migration or schema-version increment plus tests.
 
 ## Development workflow
@@ -109,7 +114,8 @@ Preserve tests for:
 
 - dataset count, uniqueness, normalization, ranks, and non-increasing frequency;
 - gesture threshold and cancellation, direction mappings, buttons, keyboard controls, undo, revisiting, and completion;
-- progress counts, two-bit persistence, backup round trips, corrupt input, and schema/dataset mismatches;
+- pronunciation, card flipping, note editing/autosave, editable-key behavior, and reduced-motion fallback;
+- progress counts, two-bit persistence, note persistence, backup round trips, corrupt input, and schema/dataset mismatches;
 - search, filters, responsive column calculations, and row virtualization;
 - the three-card mount limit, focus behavior, ARIA announcements, reduced motion, and non-color state labels.
 

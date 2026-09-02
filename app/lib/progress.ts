@@ -2,9 +2,12 @@ export const DATASET_ID = 'oewn-2025-wordfreq-en-20k-v2';
 export const LEGACY_DATASET_ID = 'oewn-2025-wordfreq-en-20k-v1';
 export const STORAGE_KEY = `wordbloom:${DATASET_ID}:progress`;
 export const LEGACY_STORAGE_KEY = `wordbloom:${LEGACY_DATASET_ID}:progress`;
+export const NOTES_STORAGE_KEY = `wordbloom:${DATASET_ID}:notes`;
+export const MAX_NOTE_LENGTH = 1_000;
 
 export type WordStatus = 0 | 1 | 2;
 export type NamedStatus = 'known' | 'unknown';
+export type WordNotes = Record<number, string>;
 
 export type ProgressBackupV1 = {
   schemaVersion: 1;
@@ -14,6 +17,15 @@ export type ProgressBackupV1 = {
   decisions: Record<number, NamedStatus>;
 };
 
+export type ProgressBackupV2 = {
+  schemaVersion: 2;
+  datasetId: string;
+  exportedAt: string;
+  cursor: number;
+  decisions: Record<number, NamedStatus>;
+  notes: WordNotes;
+};
+
 export type StoredProgressV1 = {
   schemaVersion: 1;
   datasetId: string;
@@ -21,6 +33,13 @@ export type StoredProgressV1 = {
   cursor: number;
   length: number;
   bits: string;
+};
+
+export type StoredNotesV1 = {
+  schemaVersion: 1;
+  datasetId: string;
+  updatedAt: string;
+  notes: WordNotes;
 };
 
 export type DatasetMigration = {
@@ -65,6 +84,50 @@ export function decodeStatuses(bits: string, length: number): Uint8Array {
     statuses[index] = value;
   }
   return statuses;
+}
+
+export function normalizeNote(value: string) {
+  return value.trim().length === 0 ? '' : value;
+}
+
+export function validateNotes(value: unknown, expectedLength: number): WordNotes {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Notes are missing or invalid.');
+  }
+  const notes: WordNotes = {};
+  for (const [rawIndex, note] of Object.entries(value)) {
+    const index = Number(rawIndex);
+    if (!Number.isInteger(index) || index < 0 || index >= expectedLength) {
+      throw new Error('Notes contain an unknown word index.');
+    }
+    if (typeof note !== 'string') throw new Error('Notes contain an invalid value.');
+    if (note.length > MAX_NOTE_LENGTH) {
+      throw new Error(`Notes cannot exceed ${MAX_NOTE_LENGTH.toLocaleString()} characters per word.`);
+    }
+    const normalized = normalizeNote(note);
+    if (normalized) notes[index] = normalized;
+  }
+  return notes;
+}
+
+export function countNotes(notes: WordNotes) {
+  return Object.values(notes).filter((note) => normalizeNote(note).length > 0).length;
+}
+
+export function serializeNotes(notes: WordNotes, expectedLength: number): StoredNotesV1 {
+  return {
+    schemaVersion: 1,
+    datasetId: DATASET_ID,
+    updatedAt: new Date().toISOString(),
+    notes: validateNotes(notes, expectedLength),
+  };
+}
+
+export function parseStoredNotes(raw: string, expectedLength: number) {
+  const value = JSON.parse(raw) as Partial<StoredNotesV1>;
+  if (value.schemaVersion !== 1) throw new Error('Unsupported notes version.');
+  if (value.datasetId !== DATASET_ID) throw new Error('Notes belong to a different word list.');
+  return validateNotes(value.notes, expectedLength);
 }
 
 export function serializeProgress(statuses: Uint8Array, cursor: number): StoredProgressV1 {
@@ -135,26 +198,42 @@ export function migrateStoredProgress(raw: string, migration: DatasetMigration, 
   return { statuses, cursor, retained: countStatuses(statuses).reviewed };
 }
 
-export function createBackup(statuses: Uint8Array, cursor: number): ProgressBackupV1 {
+export function createBackup(
+  statuses: Uint8Array,
+  cursor: number,
+  notes: WordNotes = {},
+): ProgressBackupV2 {
   const decisions: Record<number, NamedStatus> = {};
   statuses.forEach((status, index) => {
     if (status === 1) decisions[index] = 'known';
     if (status === 2) decisions[index] = 'unknown';
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     datasetId: DATASET_ID,
     exportedAt: new Date().toISOString(),
     cursor,
     decisions,
+    notes: validateNotes(notes, statuses.length),
   };
 }
 
 export function parseBackup(raw: string, expectedLength: number, migration?: DatasetMigration) {
-  const value = JSON.parse(raw) as Partial<ProgressBackupV1>;
-  if (value.schemaVersion !== 1) throw new Error('This backup version is not supported.');
+  const value = JSON.parse(raw) as {
+    schemaVersion?: number;
+    datasetId?: unknown;
+    cursor?: unknown;
+    decisions?: unknown;
+    notes?: unknown;
+  };
+  if (value.schemaVersion !== 1 && value.schemaVersion !== 2) {
+    throw new Error('This backup version is not supported.');
+  }
   const isLegacy = value.datasetId === LEGACY_DATASET_ID && migration !== undefined;
   if (value.datasetId !== DATASET_ID && !isLegacy) throw new Error('This backup uses a different word list.');
+  if (value.schemaVersion === 2 && isLegacy) {
+    throw new Error('This notes backup uses a different word list.');
+  }
   if (isLegacy) validateMigration(migration, expectedLength);
   if (!value.decisions || typeof value.decisions !== 'object' || Array.isArray(value.decisions)) {
     throw new Error('The backup decisions are missing or invalid.');
@@ -181,7 +260,8 @@ export function parseBackup(raw: string, expectedLength: number, migration?: Dat
     mappedCursor < expectedLength && mappedCursor >= 0 && statuses[mappedCursor] === 0
       ? mappedCursor
       : findNextUnmarked(statuses, Math.max(-1, mappedCursor - 1));
-  return { statuses, cursor: restoredCursor, migrated: isLegacy };
+  const notes = value.schemaVersion === 2 ? validateNotes(value.notes, expectedLength) : {};
+  return { statuses, cursor: restoredCursor, migrated: isLegacy, notes };
 }
 
 export function findNextUnmarked(statuses: Uint8Array, after: number) {

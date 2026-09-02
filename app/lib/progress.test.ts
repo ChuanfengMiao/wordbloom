@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calculateColumns,
+  countNotes,
   countStatuses,
   createBackup,
   DATASET_ID,
@@ -9,9 +10,13 @@ import {
   encodeStatuses,
   findNextUnmarked,
   LEGACY_DATASET_ID,
+  MAX_NOTE_LENGTH,
   migrateStoredProgress,
+  normalizeNote,
   parseBackup,
+  parseStoredNotes,
   parseStoredProgress,
+  serializeNotes,
   serializeProgress,
   statusForSwipe,
 } from './progress';
@@ -47,10 +52,18 @@ describe('compact progress state', () => {
     expect(Array.from(stored.statuses)).toEqual([1, 0, 2, 1]);
     expect(stored.cursor).toBe(1);
 
-    const parsed = parseBackup(JSON.stringify(createBackup(statuses, 1)), 4);
+    const parsed = parseBackup(JSON.stringify(createBackup(statuses, 1, { 0: 'article cue' })), 4);
     expect(Array.from(parsed.statuses)).toEqual([1, 0, 2, 1]);
     expect(parsed.cursor).toBe(1);
     expect(parsed.migrated).toBe(false);
+    expect(parsed.notes).toEqual({ 0: 'article cue' });
+  });
+
+  it('round-trips sparse local notes and removes blank values', () => {
+    const stored = serializeNotes({ 0: 'first cue', 1: '   ', 3: 'another cue' }, 4);
+    expect(parseStoredNotes(JSON.stringify(stored), 4)).toEqual({ 0: 'first cue', 3: 'another cue' });
+    expect(normalizeNote('   ')).toBe('');
+    expect(countNotes({ 0: 'cue', 1: '   ' })).toBe(1);
   });
 
   it('migrates compatible stored progress and backups from dataset v1', () => {
@@ -70,6 +83,7 @@ describe('compact progress state', () => {
     expect(Array.from(parsed.statuses)).toEqual([0, 1, 2]);
     expect(parsed.cursor).toBe(0);
     expect(parsed.migrated).toBe(true);
+    expect(parsed.notes).toEqual({});
   });
 
   it('rejects malformed, incompatible, and out-of-range stored progress', () => {
@@ -84,12 +98,27 @@ describe('compact progress state', () => {
   it('rejects malformed, incompatible, and out-of-range backups', () => {
     const backup = createBackup(Uint8Array.from([1, 0]), 1);
     expect(() => parseBackup('{', 2)).toThrow();
-    expect(() => parseBackup(JSON.stringify({ ...backup, schemaVersion: 2 }), 2)).toThrow(/version/i);
+    expect(() => parseBackup(JSON.stringify({ ...backup, schemaVersion: 3 }), 2)).toThrow(/version/i);
     expect(() => parseBackup(JSON.stringify({ ...backup, datasetId: 'other' }), 2)).toThrow(/different word list/i);
     expect(() => parseBackup(JSON.stringify({ ...backup, decisions: [] }), 2)).toThrow(/decisions/i);
     expect(() => parseBackup(JSON.stringify({ ...backup, decisions: { 0: 'maybe' } }), 2)).toThrow(/invalid word status/i);
     expect(() => parseBackup(JSON.stringify({ ...backup, decisions: { 2: 'known' } }), 2)).toThrow(/unknown word index/i);
     expect(() => parseBackup(JSON.stringify({ ...backup, cursor: -1 }), 2)).toThrow(/cursor/i);
+    expect(() => parseBackup(JSON.stringify({ ...backup, notes: [] }), 2)).toThrow(/notes/i);
+    expect(() => parseBackup(JSON.stringify({ ...backup, notes: { 2: 'cue' } }), 2)).toThrow(/word index/i);
+    expect(() => parseBackup(JSON.stringify({ ...backup, notes: { 0: 12 } }), 2)).toThrow(/invalid value/i);
+    expect(() => parseBackup(JSON.stringify({ ...backup, notes: { 0: 'x'.repeat(MAX_NOTE_LENGTH + 1) } }), 2)).toThrow(/exceed/i);
+  });
+
+  it('accepts schema-version-1 backups with an empty note set', () => {
+    const legacyShape = {
+      schemaVersion: 1,
+      datasetId: DATASET_ID,
+      exportedAt: new Date().toISOString(),
+      cursor: 1,
+      decisions: { 0: 'known' },
+    };
+    expect(parseBackup(JSON.stringify(legacyShape), 2).notes).toEqual({});
   });
 
   it('counts, wraps to the next unmarked word, and calculates responsive columns', () => {

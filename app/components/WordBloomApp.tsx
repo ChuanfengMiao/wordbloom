@@ -11,10 +11,13 @@ import {
   HelpCircle,
   Info,
   Leaf,
+  NotebookPen,
+  PanelTopClose,
   RotateCcw,
   Settings2,
   Sprout,
   Upload,
+  Volume2,
   X,
 } from 'lucide-react';
 import lemmasData from '../data/lemmas.json';
@@ -22,18 +25,29 @@ import manifest from '../data/manifest.json';
 import legacyV1Map from '../data/legacy-v1-map.json';
 import {
   countStatuses,
+  countNotes,
   createBackup,
   type DatasetMigration,
   findNextUnmarked,
   LEGACY_STORAGE_KEY,
+  MAX_NOTE_LENGTH,
   migrateStoredProgress,
+  normalizeNote,
+  NOTES_STORAGE_KEY,
   parseBackup,
+  parseStoredNotes,
   parseStoredProgress,
+  serializeNotes,
   serializeProgress,
   STORAGE_KEY,
   statusForSwipe,
+  type WordNotes,
   type WordStatus,
 } from '../lib/progress';
+import {
+  configureAmericanUtterance,
+  type PronunciationStatus,
+} from '../lib/speech';
 import { Overview, type WordEntry } from './Overview';
 
 const WORDS: WordEntry[] = (lemmasData as string[]).map((lemma, id) => ({ id, lemma, rank: id + 1 }));
@@ -41,6 +55,7 @@ const LEGACY_MIGRATION = legacyV1Map as DatasetMigration;
 type View = 'cards' | 'overview';
 type Modal = 'progress' | 'import' | 'reset' | null;
 type UndoState = { index: number; previousStatus: WordStatus; previousCursor: number } | null;
+type NoteSaveState = 'saved' | 'saving' | 'error';
 
 function isEditableTarget(target: EventTarget | null) {
   const element = target as HTMLElement | null;
@@ -65,21 +80,31 @@ export function WordBloomApp() {
   const [cursor, setCursor] = useState(0);
   const [hydrated, setHydrated] = useState(false);
   const [undoState, setUndoState] = useState<UndoState>(null);
+  const [notes, setNotes] = useState<WordNotes>({});
+  const [noteSaveState, setNoteSaveState] = useState<NoteSaveState>('saved');
+  const [flipped, setFlipped] = useState(false);
+  const [speechStatus, setSpeechStatus] = useState<PronunciationStatus>('unsupported');
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [announcement, setAnnouncement] = useState('');
   const [modal, setModal] = useState<Modal>(null);
   const [pendingImport, setPendingImport] = useState<{
     statuses: Uint8Array;
     cursor: number;
     migrated: boolean;
+    notes: WordNotes;
   } | null>(null);
   const [importError, setImportError] = useState('');
   const [animating, setAnimating] = useState(false);
   const cardStageRef = useRef<HTMLDivElement>(null);
   const currentCardRef = useRef<HTMLElement>(null);
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
   const focusCurrentCardRef = useRef(false);
   const importRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const latestState = useRef({ statuses, cursor });
+  const latestNotes = useRef<WordNotes>(notes);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const reduceMotion = useReducedMotion();
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-240, 0, 240], [-7, 0, 7]);
@@ -91,11 +116,26 @@ export function WordBloomApp() {
   const currentStatus = currentWord ? (statuses[currentWord.id] as WordStatus) : 0;
   const progressPercent = (stats.reviewed / WORDS.length) * 100;
   const pendingStats = pendingImport ? countStatuses(pendingImport.statuses) : null;
+  const pendingNoteCount = pendingImport ? countNotes(pendingImport.notes) : 0;
   const modalOpen = modal !== null;
+  const currentNote = currentWord ? notes[currentWord.id] ?? '' : '';
+
+  const persistNotes = useCallback((nextNotes: WordNotes = latestNotes.current) => {
+    try {
+      localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(serializeNotes(nextNotes, WORDS.length)));
+      setNoteSaveState('saved');
+      return true;
+    } catch {
+      setNoteSaveState('error');
+      setAnnouncement('Your note is still available here, but it could not be saved on this device. Export a backup to preserve it.');
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       let attemptedKey = STORAGE_KEY;
+      const messages: string[] = [];
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
@@ -119,17 +159,28 @@ export function WordBloomApp() {
               STORAGE_KEY,
               JSON.stringify(serializeProgress(restored.statuses, restored.cursor)),
             );
-            setAnnouncement(
+            messages.push(
               `Your saved progress was updated for the corrected word list. ${restored.retained.toLocaleString()} classifications were retained.`,
             );
           }
         }
       } catch {
         localStorage.removeItem(attemptedKey);
-        setAnnouncement('Saved progress could not be read, so a fresh local inventory was started.');
-      } finally {
-        setHydrated(true);
+        messages.push('Saved progress could not be read, so a fresh local inventory was started.');
       }
+      try {
+        const rawNotes = localStorage.getItem(NOTES_STORAGE_KEY);
+        if (rawNotes) {
+          const restoredNotes = parseStoredNotes(rawNotes, WORDS.length);
+          latestNotes.current = restoredNotes;
+          setNotes(restoredNotes);
+        }
+      } catch {
+        localStorage.removeItem(NOTES_STORAGE_KEY);
+        messages.push('Saved notes could not be read and were cleared.');
+      }
+      if (messages.length > 0) setAnnouncement(messages.join(' '));
+      setHydrated(true);
     }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
@@ -144,19 +195,55 @@ export function WordBloomApp() {
   }, [cursor, hydrated, statuses]);
 
   useEffect(() => {
+    latestNotes.current = notes;
+    if (!hydrated) return;
+    const timeout = window.setTimeout(() => persistNotes(notes), 300);
+    return () => window.clearTimeout(timeout);
+  }, [hydrated, notes, persistNotes]);
+
+  useEffect(() => {
     const persist = () => {
       if (document.visibilityState === 'hidden') {
         const latest = latestState.current;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeProgress(latest.statuses, latest.cursor)));
+        persistNotes(latestNotes.current);
       }
     };
     document.addEventListener('visibilitychange', persist);
     return () => document.removeEventListener('visibilitychange', persist);
+  }, [persistNotes]);
+
+  useEffect(() => () => {
+    try {
+      localStorage.setItem(NOTES_STORAGE_KEY, JSON.stringify(serializeNotes(latestNotes.current, WORDS.length)));
+    } catch {
+      // The in-memory draft remains exportable until the page fully closes.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
+      return;
+    }
+    const synth = window.speechSynthesis;
+    const refreshVoices = () => setVoices(synth.getVoices());
+    const frame = window.requestAnimationFrame(() => {
+      setSpeechSupported(true);
+      setSpeechStatus('idle');
+      refreshVoices();
+    });
+    synth.addEventListener('voiceschanged', refreshVoices);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      synth.removeEventListener('voiceschanged', refreshVoices);
+      synth.cancel();
+      utteranceRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
     x.set(0);
-  }, [cursor, x]);
+  }, [cursor, view, x]);
 
   useEffect(() => {
     if (view !== 'cards' || !focusCurrentCardRef.current) return;
@@ -223,9 +310,91 @@ export function WordBloomApp() {
     return () => window.cancelAnimationFrame(frame);
   }, [modal]);
 
+  const cancelSpeech = useCallback(() => {
+    if (speechSupported) window.speechSynthesis.cancel();
+    utteranceRef.current = null;
+    setSpeechStatus(speechSupported ? 'idle' : 'unsupported');
+  }, [speechSupported]);
+
+  const speakCurrent = useCallback(() => {
+    if (!currentWord) return;
+    if (!speechSupported || typeof SpeechSynthesisUtterance === 'undefined') {
+      setSpeechStatus('unsupported');
+      setAnnouncement('American English pronunciation is not available in this browser.');
+      return;
+    }
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    const utterance = configureAmericanUtterance(
+      new SpeechSynthesisUtterance(currentWord.lemma),
+      voices.length > 0 ? voices : synth.getVoices(),
+    );
+    utteranceRef.current = utterance;
+    utterance.onstart = () => {
+      if (utteranceRef.current === utterance) setSpeechStatus('speaking');
+    };
+    utterance.onend = () => {
+      if (utteranceRef.current === utterance) {
+        utteranceRef.current = null;
+        setSpeechStatus('idle');
+      }
+    };
+    utterance.onerror = (event) => {
+      if (utteranceRef.current !== utterance) return;
+      utteranceRef.current = null;
+      if (event.error === 'canceled' || event.error === 'interrupted') {
+        setSpeechStatus('idle');
+        return;
+      }
+      setSpeechStatus('error');
+      setAnnouncement(`Pronunciation for ${currentWord.lemma} could not be played.`);
+    };
+    synth.speak(utterance);
+  }, [currentWord, speechSupported, voices]);
+
+  const openNotes = useCallback(() => {
+    if (!currentWord || flipped) return;
+    setFlipped(true);
+    setAnnouncement(`Notes opened for ${currentWord.lemma}.`);
+  }, [currentWord, flipped]);
+
+  const closeNotes = useCallback(() => {
+    if (!currentWord || !flipped) return;
+    persistNotes();
+    setFlipped(false);
+    setAnnouncement(`Notes closed for ${currentWord.lemma}.`);
+    window.requestAnimationFrame(() => currentCardRef.current?.focus());
+  }, [currentWord, flipped, persistNotes]);
+
+  useEffect(() => {
+    if (!flipped) return;
+    const frame = window.requestAnimationFrame(() => noteInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [flipped]);
+
+  useEffect(() => {
+    if (speechSupported) window.speechSynthesis.cancel();
+    utteranceRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      setSpeechStatus(speechSupported ? 'idle' : 'unsupported');
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [cursor, modal, speechSupported, view]);
+
+  const updateCurrentNote = (value: string) => {
+    if (!currentWord) return;
+    const nextNotes = { ...latestNotes.current };
+    if (value.length === 0) delete nextNotes[currentWord.id];
+    else nextNotes[currentWord.id] = value;
+    latestNotes.current = nextNotes;
+    setNotes(nextNotes);
+    setNoteSaveState('saving');
+  };
+
   const classify = useCallback(
     (status: WordStatus) => {
       if (!currentWord || (status !== 1 && status !== 2)) return;
+      persistNotes();
       const nextStatuses = statuses.slice();
       const previousStatus = nextStatuses[currentWord.id] as WordStatus;
       nextStatuses[currentWord.id] = status;
@@ -234,13 +403,14 @@ export function WordBloomApp() {
       latestState.current = { statuses: nextStatuses, cursor: nextCursor };
       setStatuses(nextStatuses);
       setCursor(nextCursor);
+      setFlipped(false);
       setAnnouncement(
         `${currentWord.lemma} marked ${stateLabel(status).toLowerCase()}. ${
           nextCursor < WORDS.length ? `Next word: ${WORDS[nextCursor].lemma}.` : 'All words are classified.'
         }`,
       );
     },
-    [currentWord, cursor, statuses],
+    [currentWord, cursor, persistNotes, statuses],
   );
 
   const commitWithMotion = useCallback(
@@ -269,19 +439,32 @@ export function WordBloomApp() {
     latestState.current = { statuses: nextStatuses, cursor: undoState.previousCursor };
     setStatuses(nextStatuses);
     setCursor(undoState.previousCursor);
+    setFlipped(false);
     setAnnouncement(`${WORDS[undoState.index].lemma} restored to ${stateLabel(undoState.previousStatus).toLowerCase()}.`);
     setUndoState(null);
   }, [animating, statuses, undoState]);
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (modal || view !== 'cards' || isEditableTarget(event.target)) return;
+      if (modal || view !== 'cards') return;
+      if (event.key === 'Escape' && flipped) {
+        event.preventDefault();
+        closeNotes();
+        return;
+      }
+      if (isEditableTarget(event.target) || flipped) return;
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
         commitWithMotion(1);
       } else if (event.key === 'ArrowRight') {
         event.preventDefault();
         commitWithMotion(2);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        speakCurrent();
+      } else if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        openNotes();
       } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         undo();
@@ -289,17 +472,26 @@ export function WordBloomApp() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [commitWithMotion, modal, undo, view]);
+  }, [closeNotes, commitWithMotion, flipped, modal, openNotes, speakCurrent, undo, view]);
 
   const openWord = (index: number) => {
+    persistNotes();
     focusCurrentCardRef.current = true;
+    setFlipped(false);
     setCursor(index);
     setView('cards');
     setAnnouncement(`${WORDS[index].lemma} opened for review.`);
   };
 
+  const changeView = (nextView: View) => {
+    persistNotes();
+    setFlipped(false);
+    setView(nextView);
+  };
+
   const exportProgress = () => {
-    const backup = createBackup(statuses, cursor);
+    persistNotes();
+    const backup = createBackup(statuses, cursor, latestNotes.current);
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -307,7 +499,7 @@ export function WordBloomApp() {
     link.download = `wordbloom-backup-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    setAnnouncement('Progress backup downloaded.');
+    setAnnouncement('Progress and notes backup downloaded.');
   };
 
   const handleImport = async (file: File | undefined) => {
@@ -333,32 +525,43 @@ export function WordBloomApp() {
         ? pendingImport.cursor
         : findNextUnmarked(pendingImport.statuses, Math.max(-1, pendingImport.cursor - 1));
     latestState.current = { statuses: pendingImport.statuses, cursor: importedCursor };
+    latestNotes.current = pendingImport.notes;
     setStatuses(pendingImport.statuses);
     setCursor(importedCursor);
+    setNotes(pendingImport.notes);
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify(serializeProgress(pendingImport.statuses, importedCursor)),
     );
+    const notesSaved = persistNotes(pendingImport.notes);
     setUndoState(null);
+    setFlipped(false);
     setPendingImport(null);
     setModal(null);
-    setAnnouncement(
-      pendingImport.migrated
-        ? 'Older backup imported and updated for the corrected word list. Your local progress has been replaced.'
-        : 'Backup imported. Your local progress has been replaced.',
-    );
+    if (notesSaved) {
+      setAnnouncement(
+        pendingImport.migrated
+          ? 'Older backup imported and updated for the corrected word list. Your local progress and notes have been replaced.'
+          : 'Backup imported. Your local progress and notes have been replaced.',
+      );
+    }
   };
 
   const confirmReset = () => {
     const empty = new Uint8Array(WORDS.length);
     latestState.current = { statuses: empty, cursor: 0 };
+    latestNotes.current = {};
     setStatuses(empty);
     setCursor(0);
+    setNotes({});
     setUndoState(null);
+    setFlipped(false);
+    cancelSpeech();
     localStorage.removeItem(LEGACY_STORAGE_KEY);
+    localStorage.removeItem(NOTES_STORAGE_KEY);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeProgress(empty, 0)));
     setModal(null);
-    setAnnouncement('All progress reset. Starting again with the first word.');
+    setAnnouncement('All progress and notes reset. Starting again with the first word.');
   };
 
   const stackIndexes = currentWord
@@ -372,15 +575,15 @@ export function WordBloomApp() {
       <div className="ambient flower-dots" />
 
       <header className="topbar">
-        <button className="brand" type="button" onClick={() => setView('cards')} aria-label="Open WordBloom cards">
+        <button className="brand" type="button" onClick={() => changeView('cards')} aria-label="Open WordBloom cards">
           <span className="brand-mark" aria-hidden="true">✿</span>
           <span>WordBloom</span>
         </button>
         <nav className="view-switch" aria-label="Vocabulary views">
-          <button className={`view-pill ${view === 'cards' ? 'active' : ''}`} type="button" onClick={() => setView('cards')}>
+          <button className={`view-pill ${view === 'cards' ? 'active' : ''}`} type="button" onClick={() => changeView('cards')}>
             Cards
           </button>
-          <button className={`view-pill ${view === 'overview' ? 'active' : ''}`} type="button" onClick={() => setView('overview')}>
+          <button className={`view-pill ${view === 'overview' ? 'active' : ''}`} type="button" onClick={() => changeView('overview')}>
             Overview
           </button>
         </nav>
@@ -445,8 +648,8 @@ export function WordBloomApp() {
                   return (
                     <motion.article
                       ref={currentCardRef}
-                      className={`word-card current-card status-${status}`}
-                      drag="x"
+                      className={`word-card current-card status-${status} ${flipped ? 'is-flipped' : ''}`}
+                      drag={flipped ? false : 'x'}
                       dragConstraints={{ left: 0, right: 0 }}
                       dragElastic={1}
                       key={wordIndex}
@@ -460,23 +663,118 @@ export function WordBloomApp() {
                           animate(x, 0, { type: 'spring', stiffness: 420, damping: 32 });
                         }
                       }}
-                      aria-label={`${currentWord.lemma}, rank ${currentWord.rank}, ${stateLabel(currentStatus)}`}
+                      aria-label={`${currentWord.lemma}, rank ${currentWord.rank}, ${stateLabel(currentStatus)}, ${flipped ? 'notes side' : 'front side'}`}
                       tabIndex={-1}
                     >
-                      <div className="card-topline">
-                        <span className="rank-chip">#{currentWord.rank.toLocaleString()}</span>
-                        <span className={`card-state-badge status-${currentStatus}`}>
-                          {currentStatus === 1 && <Check aria-hidden="true" size={13} />}
-                          {currentStatus === 2 && <HelpCircle aria-hidden="true" size={13} />}
-                          {stateLabel(currentStatus)}
-                        </span>
-                      </div>
-                      <div className="word-center">
-                        <p className="question">Know this word?</p>
-                        <h2>{currentWord.lemma}</h2>
-                        <p className="known-rule">You can recall a meaning and recognize it in context.</p>
-                      </div>
-                      <p className="drag-hint">Drag the card or use your arrow keys</p>
+                      <motion.div
+                        className={`card-flipper ${reduceMotion ? 'reduced-flip' : ''}`}
+                        initial={false}
+                        animate={reduceMotion ? { opacity: 1 } : { rotateY: flipped ? 180 : 0 }}
+                        transition={{ type: 'spring', bounce: 0, duration: 0.36 }}
+                      >
+                        <section
+                          className="card-face card-front-face"
+                          aria-hidden={flipped}
+                          inert={flipped ? true : undefined}
+                        >
+                          <div className="card-topline">
+                            <span className="rank-chip">#{currentWord.rank.toLocaleString()}</span>
+                            <span className={`card-state-badge status-${currentStatus}`}>
+                              {currentStatus === 1 && <Check aria-hidden="true" size={13} />}
+                              {currentStatus === 2 && <HelpCircle aria-hidden="true" size={13} />}
+                              {stateLabel(currentStatus)}
+                            </span>
+                          </div>
+                          <div className="word-center">
+                            <p className="question">Know this word?</p>
+                            <h2>{currentWord.lemma}</h2>
+                            <p className="known-rule">You can recall a meaning and recognize it in context.</p>
+                          </div>
+                          <div className="card-footer">
+                            <p className="drag-hint">Drag or use the arrow keys</p>
+                            <div className="card-tools" aria-label="Word tools">
+                              <button
+                                className={`card-tool ${speechStatus === 'speaking' ? 'speaking' : ''}`}
+                                type="button"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={speakCurrent}
+                                disabled={!speechSupported}
+                                aria-label={`${speechStatus === 'speaking' ? 'Replay' : 'Play'} American pronunciation of ${currentWord.lemma}`}
+                              >
+                                <Volume2 aria-hidden="true" size={17} />
+                                <span>Listen</span>
+                                <kbd>↑</kbd>
+                              </button>
+                              <button
+                                className="card-tool"
+                                type="button"
+                                onPointerDown={(event) => event.stopPropagation()}
+                                onClick={openNotes}
+                                aria-label={`Open notes for ${currentWord.lemma}`}
+                              >
+                                <NotebookPen aria-hidden="true" size={17} />
+                                <span>Notes</span>
+                                <kbd>↓</kbd>
+                              </button>
+                            </div>
+                          </div>
+                        </section>
+
+                        <section
+                          className="card-face note-card-face"
+                          aria-hidden={!flipped}
+                          inert={flipped ? undefined : true}
+                        >
+                          <div className="note-card-topline">
+                            <div>
+                              <span className="rank-chip">#{currentWord.rank.toLocaleString()}</span>
+                              <p>Notes for <strong>{currentWord.lemma}</strong></p>
+                            </div>
+                            <div className="note-card-actions">
+                              <button
+                                className={`icon-card-tool ${speechStatus === 'speaking' ? 'speaking' : ''}`}
+                                type="button"
+                                onClick={speakCurrent}
+                                disabled={!speechSupported}
+                                aria-label={`${speechStatus === 'speaking' ? 'Replay' : 'Play'} American pronunciation of ${currentWord.lemma}`}
+                              >
+                                <Volume2 aria-hidden="true" size={18} />
+                              </button>
+                              <button
+                                className="show-front-button"
+                                type="button"
+                                onClick={closeNotes}
+                                aria-label={`Show the front of ${currentWord.lemma}`}
+                              >
+                                <PanelTopClose aria-hidden="true" size={17} />
+                                <span>Show front</span> <kbd>Esc</kbd>
+                              </button>
+                            </div>
+                          </div>
+                          <label className="note-label" htmlFor={`word-note-${currentWord.id}`}>Your note</label>
+                          <textarea
+                            id={`word-note-${currentWord.id}`}
+                            ref={noteInputRef}
+                            className="note-editor"
+                            value={currentNote}
+                            maxLength={MAX_NOTE_LENGTH}
+                            onChange={(event) => updateCurrentNote(event.target.value)}
+                            onBlur={() => {
+                              const normalized = normalizeNote(currentNote);
+                              if (normalized !== currentNote) updateCurrentNote(normalized);
+                              persistNotes();
+                            }}
+                            aria-describedby={`note-meta-${currentWord.id}`}
+                            placeholder="Add a memory cue, meaning, or example…"
+                          />
+                          <div className="note-meta" id={`note-meta-${currentWord.id}`}>
+                            <span className={`note-save-state ${noteSaveState}`}>
+                              {noteSaveState === 'error' ? 'Not saved' : noteSaveState === 'saving' ? 'Saving…' : 'Saved locally'}
+                            </span>
+                            <span>{currentNote.length.toLocaleString()} / {MAX_NOTE_LENGTH.toLocaleString()}</span>
+                          </div>
+                        </section>
+                      </motion.div>
                     </motion.article>
                   );
                 })}
@@ -499,7 +797,7 @@ export function WordBloomApp() {
               <p className="eyebrow">20,000 WORDS REVIEWED</p>
               <h2>Your vocabulary garden is mapped.</h2>
               <p>You marked {stats.known.toLocaleString()} known words and {stats.unknown.toLocaleString()} words to revisit.</p>
-              <button type="button" onClick={() => setView('overview')}><Leaf aria-hidden="true" size={18} /> Explore your overview</button>
+              <button type="button" onClick={() => changeView('overview')}><Leaf aria-hidden="true" size={18} /> Explore your overview</button>
             </section>
           )}
 
@@ -507,7 +805,7 @@ export function WordBloomApp() {
             <button className="undo-button" type="button" onClick={undo} disabled={!undoState || animating}>
               <RotateCcw aria-hidden="true" size={15} /> Undo <span>Ctrl Z</span>
             </button>
-            <p className="gentle-note"><Sprout aria-hidden="true" size={14} /> Your progress stays on this device.</p>
+            <p className="gentle-note"><Sprout aria-hidden="true" size={14} /> Your progress and notes stay on this device.</p>
           </div>
         </section>
       )}
@@ -552,6 +850,7 @@ export function WordBloomApp() {
                   <div><strong>{stats.unknown.toLocaleString()}</strong><span>Unknown</span></div>
                   <div><strong>{stats.remaining.toLocaleString()}</strong><span>Remaining</span></div>
                 </div>
+                <p className="modal-note-count"><NotebookPen aria-hidden="true" size={15} /> {countNotes(notes).toLocaleString()} saved notes</p>
                 <div className="modal-actions">
                   <button type="button" className="primary-action" onClick={exportProgress}><Download size={17} /> Export backup</button>
                   <button type="button" className="secondary-action" onClick={() => importRef.current?.click()}><Upload size={17} /> Import backup</button>
@@ -571,7 +870,7 @@ export function WordBloomApp() {
                   {importError ? <HelpCircle aria-hidden="true" size={22} /> : <Upload aria-hidden="true" size={22} />}
                 </div>
                 <p className="eyebrow">IMPORT BACKUP</p>
-                <h2 id="modal-title">{importError ? 'That file didn’t work' : 'Replace local progress?'}</h2>
+                <h2 id="modal-title">{importError ? 'That file didn’t work' : 'Replace local data?'}</h2>
                 {importError ? (
                   <>
                     <p className="modal-lede error-copy">{importError}</p>
@@ -579,12 +878,13 @@ export function WordBloomApp() {
                   </>
                 ) : (
                   <>
-                    <p className="modal-lede">This will replace the progress currently saved in this browser.</p>
+                    <p className="modal-lede">This will replace the progress and notes currently saved in this browser.</p>
                     <div className="modal-stats">
                       <div><strong>{pendingStats?.known.toLocaleString()}</strong><span>Known</span></div>
                       <div><strong>{pendingStats?.unknown.toLocaleString()}</strong><span>Unknown</span></div>
                       <div><strong>{pendingStats?.remaining.toLocaleString()}</strong><span>Remaining</span></div>
                     </div>
+                    <p className="modal-note-count"><NotebookPen aria-hidden="true" size={15} /> {pendingNoteCount.toLocaleString()} notes in this backup</p>
                     <div className="confirm-row">
                       <button type="button" className="secondary-action" onClick={() => setModal(null)}>Cancel</button>
                       <button type="button" className="primary-action" onClick={confirmImport}>Replace progress</button>
@@ -598,8 +898,8 @@ export function WordBloomApp() {
               <>
                 <div className="modal-icon pink"><RotateCcw aria-hidden="true" size={22} /></div>
                 <p className="eyebrow">FRESH START</p>
-                <h2 id="modal-title">Reset all progress?</h2>
-                <p className="modal-lede">All {stats.reviewed.toLocaleString()} decisions on this device will be removed. Export a backup first if you may want them later.</p>
+                <h2 id="modal-title">Reset all local data?</h2>
+                <p className="modal-lede">All {stats.reviewed.toLocaleString()} decisions and {countNotes(notes).toLocaleString()} notes on this device will be removed. Export a backup first if you may want them later.</p>
                 <div className="confirm-row">
                   <button type="button" className="secondary-action" onClick={() => setModal('progress')}>Keep progress</button>
                   <button type="button" className="danger-action filled" onClick={confirmReset}>Reset everything</button>
