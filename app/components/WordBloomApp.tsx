@@ -49,6 +49,7 @@ import {
   type PronunciationStatus,
 } from '../lib/speech';
 import { Overview, type WordEntry } from './Overview';
+import { createDecisionSounds } from '../lib/decision-sounds';
 
 const WORDS: WordEntry[] = (lemmasData as string[]).map((lemma, id) => ({ id, lemma, rank: id + 1 }));
 const LEGACY_MIGRATION = legacyV1Map as DatasetMigration;
@@ -105,6 +106,7 @@ export function WordBloomApp() {
   const latestState = useRef({ statuses, cursor });
   const latestNotes = useRef<WordNotes>(notes);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const decisionSoundsRef = useRef<ReturnType<typeof createDecisionSounds> | null>(null);
   const reduceMotion = useReducedMotion();
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-240, 0, 240], [-7, 0, 7]);
@@ -318,6 +320,7 @@ export function WordBloomApp() {
 
   const speakCurrent = useCallback(() => {
     if (!currentWord) return;
+    decisionSoundsRef.current?.stop();
     if (!speechSupported || typeof SpeechSynthesisUtterance === 'undefined') {
       setSpeechStatus('unsupported');
       setAnnouncement('American English pronunciation is not available in this browser.');
@@ -373,6 +376,7 @@ export function WordBloomApp() {
   }, [flipped]);
 
   useEffect(() => {
+    if (modal || view !== 'cards') decisionSoundsRef.current?.stop();
     if (speechSupported) window.speechSynthesis.cancel();
     utteranceRef.current = null;
     const frame = window.requestAnimationFrame(() => {
@@ -380,6 +384,11 @@ export function WordBloomApp() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [cursor, modal, speechSupported, view]);
+
+  useEffect(() => () => {
+    decisionSoundsRef.current?.dispose();
+    decisionSoundsRef.current = null;
+  }, []);
 
   const updateCurrentNote = (value: string) => {
     if (!currentWord) return;
@@ -415,7 +424,10 @@ export function WordBloomApp() {
 
   const commitWithMotion = useCallback(
     (status: WordStatus) => {
-      if (!hydrated || animating || !currentWord) return;
+      if (!hydrated || animating || !currentWord || (status !== 1 && status !== 2)) return;
+      cancelSpeech();
+      decisionSoundsRef.current ??= createDecisionSounds();
+      void decisionSoundsRef.current.play(status);
       const direction = status === 1 ? -1 : 1;
       if (reduceMotion) {
         classify(status);
@@ -429,11 +441,12 @@ export function WordBloomApp() {
         setAnimating(false);
       });
     },
-    [animating, classify, currentWord, hydrated, reduceMotion, x],
+    [animating, cancelSpeech, classify, currentWord, hydrated, reduceMotion, x],
   );
 
   const undo = useCallback(() => {
     if (!undoState || animating) return;
+    decisionSoundsRef.current?.stop();
     const nextStatuses = statuses.slice();
     nextStatuses[undoState.index] = undoState.previousStatus;
     latestState.current = { statuses: nextStatuses, cursor: undoState.previousCursor };
@@ -446,25 +459,26 @@ export function WordBloomApp() {
 
   useEffect(() => {
     const handleKey = (event: KeyboardEvent) => {
-      if (modal || view !== 'cards') return;
-      if (event.key === 'Escape' && flipped) {
+      if (modal || view !== 'cards' || event.isComposing) return;
+      const modified = event.altKey || event.ctrlKey || event.metaKey || event.shiftKey;
+      const editable = isEditableTarget(event.target);
+      // Vertical shortcuts intentionally work in this editor; modified arrows still edit text.
+      if (!modified && (event.key === 'ArrowUp' || event.key === 'ArrowDown') &&
+          (!editable || (flipped && event.target === noteInputRef.current))) {
         event.preventDefault();
-        closeNotes();
+        if (event.repeat || animating) return;
+        if (event.key === 'ArrowUp') speakCurrent();
+        else if (flipped) closeNotes();
+        else openNotes();
         return;
       }
-      if (isEditableTarget(event.target) || flipped) return;
-      if (event.key === 'ArrowLeft') {
+      if (editable || flipped) return;
+      if (!modified && event.key === 'ArrowLeft') {
         event.preventDefault();
         commitWithMotion(1);
-      } else if (event.key === 'ArrowRight') {
+      } else if (!modified && event.key === 'ArrowRight') {
         event.preventDefault();
         commitWithMotion(2);
-      } else if (event.key === 'ArrowUp') {
-        event.preventDefault();
-        speakCurrent();
-      } else if (event.key === 'ArrowDown') {
-        event.preventDefault();
-        openNotes();
       } else if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         event.preventDefault();
         undo();
@@ -472,7 +486,7 @@ export function WordBloomApp() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [closeNotes, commitWithMotion, flipped, modal, openNotes, speakCurrent, undo, view]);
+  }, [animating, closeNotes, commitWithMotion, flipped, modal, openNotes, speakCurrent, undo, view]);
 
   const openWord = (index: number) => {
     persistNotes();
@@ -557,6 +571,7 @@ export function WordBloomApp() {
     setUndoState(null);
     setFlipped(false);
     cancelSpeech();
+    decisionSoundsRef.current?.stop();
     localStorage.removeItem(LEGACY_STORAGE_KEY);
     localStorage.removeItem(NOTES_STORAGE_KEY);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(serializeProgress(empty, 0)));
@@ -700,6 +715,7 @@ export function WordBloomApp() {
                                 onClick={speakCurrent}
                                 disabled={!speechSupported}
                                 aria-label={`${speechStatus === 'speaking' ? 'Replay' : 'Play'} American pronunciation of ${currentWord.lemma}`}
+                                aria-keyshortcuts="ArrowUp"
                               >
                                 <Volume2 aria-hidden="true" size={17} />
                                 <span>Listen</span>
@@ -711,6 +727,7 @@ export function WordBloomApp() {
                                 onPointerDown={(event) => event.stopPropagation()}
                                 onClick={openNotes}
                                 aria-label={`Open notes for ${currentWord.lemma}`}
+                                aria-keyshortcuts="ArrowDown"
                               >
                                 <NotebookPen aria-hidden="true" size={17} />
                                 <span>Notes</span>
@@ -732,22 +749,25 @@ export function WordBloomApp() {
                             </div>
                             <div className="note-card-actions">
                               <button
-                                className={`icon-card-tool ${speechStatus === 'speaking' ? 'speaking' : ''}`}
+                                className={`card-tool ${speechStatus === 'speaking' ? 'speaking' : ''}`}
                                 type="button"
                                 onClick={speakCurrent}
                                 disabled={!speechSupported}
                                 aria-label={`${speechStatus === 'speaking' ? 'Replay' : 'Play'} American pronunciation of ${currentWord.lemma}`}
+                                aria-keyshortcuts="ArrowUp"
                               >
                                 <Volume2 aria-hidden="true" size={18} />
+                                <span>Listen</span> <kbd>↑</kbd>
                               </button>
                               <button
                                 className="show-front-button"
                                 type="button"
                                 onClick={closeNotes}
                                 aria-label={`Show the front of ${currentWord.lemma}`}
+                                aria-keyshortcuts="ArrowDown"
                               >
                                 <PanelTopClose aria-hidden="true" size={17} />
-                                <span>Show front</span> <kbd>Esc</kbd>
+                                <span>Show front</span> <kbd>↓</kbd>
                               </button>
                             </div>
                           </div>
@@ -764,9 +784,12 @@ export function WordBloomApp() {
                               if (normalized !== currentNote) updateCurrentNote(normalized);
                               persistNotes();
                             }}
-                            aria-describedby={`note-meta-${currentWord.id}`}
+                            aria-describedby={`note-shortcuts-${currentWord.id} note-meta-${currentWord.id}`}
                             placeholder="Add a memory cue, meaning, or example…"
                           />
+                          <p className="sr-only" id={`note-shortcuts-${currentWord.id}`}>
+                            Up Arrow plays pronunciation. Down Arrow shows the front. Use modified arrows to move or select text vertically.
+                          </p>
                           <div className="note-meta" id={`note-meta-${currentWord.id}`}>
                             <span className={`note-save-state ${noteSaveState}`}>
                               {noteSaveState === 'error' ? 'Not saved' : noteSaveState === 'saving' ? 'Saving…' : 'Saved locally'}

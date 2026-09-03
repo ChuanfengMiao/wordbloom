@@ -38,6 +38,10 @@ The canonical file remains the source for validation, licensing, and future rege
 
 Only the current card and next two cards are rendered. The current card owns separate swipe and front/back transform layers so note editing does not change the established gesture thresholds. A classification updates the status array, records the single undo snapshot, advances to the next unmarked lemma, announces the result, and persists the compact state. Notes are sparse, limited to 1,000 characters per lemma, and autosaved separately from classifications.
 
+Card radius is inherited through the swipe container, inner flipper, and both faces. Each face owns its surface, border, and shadow; the outer transform layer stays transparent so a stationary background cannot show through the flip. The two preview cards use restrained offsets.
+
+`decision-sounds.ts` lazily creates one browser AudioContext on an accepted classification gesture. Known and Unknown use distinct sine-tone pairs under 200 ms with a short attack and exponential decay. Repeated cues fade previous voices instead of accumulating. Resume failures or unsupported audio are silent; classification never awaits playback. Pronunciation, dialogs, view changes, reset, and undo stop pending cues; unmount closes the context. No additional assets, services, or persistence schemas are required.
+
 Pronunciation uses the browser's `SpeechSynthesisUtterance` implementation with `en-US`. It prefers an exact local American English voice when available and does not introduce audio assets or application network requests.
 
 `Overview` receives the ordered entries and status array. Search and status filters are memoized, rows are virtualized, and selecting a tile returns to the card view at that exact index. Reclassification is allowed.
@@ -52,7 +56,7 @@ The v1 migration file maps every old index either to the exact matching v2 lemma
 
 ## Accessibility constraints
 
-Direction mappings, labels, focus behavior, announcements, contrast, and reduced motion are product contracts. Dialogs trap focus, close on Escape, and restore focus to their trigger. Opening the card back focuses the note editor; `Escape` returns to the front and restores card focus. Inactive faces are hidden from the accessibility and tab trees. Status never relies on color alone. Keyboard handlers preserve normal arrow-key editing in editable controls, and reduced motion replaces the 3D flip with a short cross-fade.
+Direction mappings, labels, focus behavior, announcements, contrast, and reduced motion are product contracts. Dialogs trap focus, close on Escape, and restore focus to their trigger. Opening the card back focuses the note editor; `ArrowDown` returns to the front and restores card focus. On either face, `ArrowUp` plays pronunciation. These unmodified vertical shortcuts intentionally override the note editor's default caret movement; Left/Right and modified arrows retain editing behavior. Repeated vertical events and composition keystrokes do not trigger shortcuts. Other editable controls keep normal behavior. Inactive faces are hidden from the accessibility and tab trees. Status never relies on color or sound alone, and reduced motion replaces the 3D flip with a short cross-fade.
 
 ## Build and hosting
 

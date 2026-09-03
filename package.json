@@ -1,6 +1,6 @@
 {
   "name": "wordbloom",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A private, local-first inventory for classifying 20,000 general-English lemmas.",
   "private": true,
   "license": "SEE LICENSE IN LICENSES.md",

@@ -24,8 +24,9 @@ These behaviors are intentional and must not drift:
 - Swipe left, press `ArrowLeft`, or use the left button for **Known**.
 - Swipe right, press `ArrowRight`, or use the right button for **Unknown**.
 - Press `ArrowUp` or use the Listen button for device-provided `en-US` pronunciation.
-- Press `ArrowDown` or use the Notes button to open the current card's back; use Show front or `Escape` to close it.
-- Preserve normal arrow-key editing while the note textarea has focus, and disable swipe dragging while the back is open.
+- Press `ArrowDown` to toggle the current card's front/back; Notes and Show front remain pointer alternatives. `Escape` closes dialogs, not notes.
+- In the note editor, unmodified `ArrowUp` plays pronunciation and `ArrowDown` returns to the front. Preserve Left/Right, modified arrows, and composition input for editing; ignore repeated vertical shortcut events. Disable swipe dragging while the back is open.
+- Play distinct, short, device-local Known/Unknown sound cues only for accepted classifications. Audio failure must never block the workflow; no cues for undo or imports.
 - A swipe commits after 22% of card width or 650 px/s directional velocity; otherwise it springs back.
 - Mount no more than the current card and the next two cards.
 - Support one-step undo through the button and `Ctrl/Cmd+Z`.
@@ -53,6 +54,7 @@ Extend the existing design tokens and components rather than introducing a compe
 - `app/components/Overview.tsx`: searchable/filterable virtualized vocabulary grid
 - `app/lib/progress.ts`: status encoding, persistence schema, backup validation, counts, and layout helpers
 - `app/lib/speech.ts`: American English voice selection and utterance configuration
+- `app/lib/decision-sounds.ts`: lazy Web Audio classification cues, overlap control, and cleanup
 - `app/data/words.json`: committed 20,000-entry static dataset
 - `app/data/lemmas.json`: compact browser payload derived from the canonical dataset
 - `app/data/manifest.json`: source, version, generation, filtering, and license record
@@ -114,7 +116,7 @@ Preserve tests for:
 
 - dataset count, uniqueness, normalization, ranks, and non-increasing frequency;
 - gesture threshold and cancellation, direction mappings, buttons, keyboard controls, undo, revisiting, and completion;
-- pronunciation, card flipping, note editing/autosave, editable-key behavior, and reduced-motion fallback;
+- pronunciation, card flipping, note editing/autosave, vertical note shortcuts, modified-key behavior, classification sounds/failure handling, and reduced-motion fallback;
 - progress counts, two-bit persistence, note persistence, backup round trips, corrupt input, and schema/dataset mismatches;
 - search, filters, responsive column calculations, and row virtualization;
 - the three-card mount limit, focus behavior, ARIA announcements, reduced motion, and non-color state labels.

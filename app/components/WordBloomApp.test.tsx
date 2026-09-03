@@ -21,6 +21,9 @@ const first = words[0];
 const second = words[1];
 const third = words[2];
 
+const decisionSounds = vi.hoisted(() => ({ play: vi.fn(), stop: vi.fn(), dispose: vi.fn() }));
+vi.mock('../lib/decision-sounds', () => ({ createDecisionSounds: () => decisionSounds }));
+
 class MockSpeechSynthesisUtterance {
   text: string;
   lang = '';
@@ -79,6 +82,7 @@ function installSpeechSynthesis() {
 async function renderHydrated() {
   const result = render(<WordBloomApp />);
   await waitFor(() => expect(screen.getByRole('button', { name: /i know itknown/i })).toBeEnabled());
+  await act(async () => {});
   return result;
 }
 
@@ -87,6 +91,9 @@ describe('WordBloom interactions', () => {
     localStorage.clear();
     setReducedMotion(true);
     installSpeechSynthesis();
+    decisionSounds.play.mockClear();
+    decisionSounds.stop.mockClear();
+    decisionSounds.dispose.mockClear();
   });
 
   it('keeps only three cards mounted and maps buttons to the requested states', async () => {
@@ -178,7 +185,7 @@ describe('WordBloom interactions', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/pronunciation is not available/i);
   });
 
-  it('flips to an editable note, preserves arrow editing, autosaves, and restores focus', async () => {
+  it('uses vertical shortcuts in notes, preserves other editing keys, autosaves, and restores focus', async () => {
     const user = userEvent.setup();
     const { container } = await renderHydrated();
     fireEvent.keyDown(window, { key: 'ArrowDown' });
@@ -187,16 +194,67 @@ describe('WordBloom interactions', () => {
     expect(container.querySelector('.current-card')).toHaveClass('is-flipped');
 
     await user.type(editor, 'Remember this cue');
-    fireEvent.keyDown(editor, { key: 'ArrowLeft' });
-    fireEvent.keyDown(editor, { key: 'ArrowDown' });
+    expect(fireEvent.keyDown(editor, { key: 'ArrowLeft' })).toBe(true);
+    expect(fireEvent.keyDown(editor, { key: 'ArrowRight' })).toBe(true);
+    expect(fireEvent.keyDown(editor, { key: 'ArrowDown', shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(editor, { key: 'ArrowUp', ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(editor, { key: 'ArrowUp', altKey: true })).toBe(true);
+    expect(fireEvent.keyDown(editor, { key: 'ArrowDown', metaKey: true })).toBe(true);
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(container.querySelector('.current-card')).toHaveClass('is-flipped');
+    fireEvent.keyDown(editor, { key: 'ArrowUp' });
+    expect(spokenUtterances.at(-1)?.text).toBe(first.lemma);
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue('Remember this cue');
+    expect(decisionSounds.play).not.toHaveBeenCalled();
     expect(screen.getByLabelText(new RegExp(`${first.lemma}, rank 1, unmarked`, 'i'))).toBeInTheDocument();
 
-    await waitFor(() => expect(localStorage.getItem(NOTES_STORAGE_KEY)).not.toBeNull(), { timeout: 1_000 });
-    expect(parseStoredNotes(localStorage.getItem(NOTES_STORAGE_KEY)!, words.length)[first.id]).toBe('Remember this cue');
+    await waitFor(() => expect(parseStoredNotes(localStorage.getItem(NOTES_STORAGE_KEY)!, words.length)[first.id]).toBe('Remember this cue'), { timeout: 1_000 });
 
-    fireEvent.keyDown(editor, { key: 'Escape' });
+    fireEvent.keyDown(editor, { key: 'ArrowDown' });
     const card = screen.getByLabelText(new RegExp(`${first.lemma}, rank 1, unmarked, front side`, 'i'));
     await waitFor(() => expect(card).toHaveFocus());
+  });
+
+  it('keeps Down Arrow repeat from reflipping and exposes matching shortcuts on both faces', async () => {
+    const user = userEvent.setup();
+    const { container } = await renderHydrated();
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    const editor = screen.getByRole('textbox', { name: /your note/i });
+    await waitFor(() => expect(editor).toHaveFocus());
+    fireEvent.keyDown(editor, { key: 'ArrowDown', repeat: true });
+    fireEvent.keyDown(editor, { key: 'ArrowDown', isComposing: true });
+    expect(container.querySelector('.current-card')).toHaveClass('is-flipped');
+    const listen = screen.getByRole('button', { name: /play american pronunciation/i });
+    expect(listen).toHaveAttribute('aria-keyshortcuts', 'ArrowUp');
+    await user.click(listen);
+    expect(spokenUtterances).toHaveLength(1);
+    const showFront = screen.getByRole('button', { name: /show the front/i });
+    expect(showFront).toHaveAttribute('aria-keyshortcuts', 'ArrowDown');
+    expect(showFront).toHaveTextContent('↓');
+    await user.click(showFront);
+    expect(container.querySelector('.current-card')).not.toHaveClass('is-flipped');
+    expect(container.querySelectorAll('.word-card')).toHaveLength(3);
+    expect(container.querySelector('.note-card-face')).toHaveAttribute('inert');
+    expect(container.querySelector('.card-flipper')).toHaveClass('reduced-flip');
+  });
+
+  it('plays one cue per accepted decision and no cues for undo, notes, or dialogs', async () => {
+    const user = userEvent.setup();
+    const { unmount } = await renderHydrated();
+    expect(decisionSounds.play).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /i know itknown/i }));
+    expect(decisionSounds.play).toHaveBeenNthCalledWith(1, 1);
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(decisionSounds.play).toHaveBeenNthCalledWith(2, 2);
+    fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(decisionSounds.stop).toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /open progress and backup/i }));
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(decisionSounds.play).toHaveBeenCalledTimes(2);
+    unmount();
+    expect(decisionSounds.dispose).toHaveBeenCalledOnce();
   });
 
   it('flushes a back-side note before pointer classification advances', async () => {
@@ -208,6 +266,7 @@ describe('WordBloom interactions', () => {
     await user.click(screen.getByRole('button', { name: /i know itknown/i }));
 
     expect(screen.getByLabelText(new RegExp(`${second.lemma}, rank 2, unmarked`, 'i'))).toBeInTheDocument();
+    expect(decisionSounds.play).toHaveBeenCalledExactlyOnceWith(1);
     expect(parseStoredNotes(localStorage.getItem(NOTES_STORAGE_KEY)!, words.length)[first.id]).toBe('Saved before advancing');
   });
 

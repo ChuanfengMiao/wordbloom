@@ -10,6 +10,7 @@ The MVP reports how many lemmas have been classified. It is not a statistically 
 ## MVP capabilities
 
 - Classify by swipe, keyboard, or buttons.
+- Hear distinct, quiet Known/Unknown confirmation sounds generated on the device.
 - Play the current lemma with the browser's American English speech voice.
 - Flip the current card to write an autosaved private note.
 - Keep no more than three cards mounted at once.
@@ -29,16 +30,20 @@ The MVP reports how many lemmas have been classified. It is not a statistically 
 | Unknown | Swipe right | `ArrowRight` | Right / Unknown |
 | Listen | — | `ArrowUp` | Listen |
 | Open notes | — | `ArrowDown` | Notes |
-| Close notes | — | `Escape` | Show front |
+| Close notes | — | `ArrowDown` | Show front |
 | Undo | — | `Ctrl/Cmd+Z` | Undo |
 
 A swipe commits after crossing 22% of the card width or reaching 650 px/s in the swipe direction. Otherwise, the card springs back.
+
+On the notes side, unmodified `ArrowUp` plays pronunciation and `ArrowDown` returns to the front even while typing. Left/Right and modified arrows keep their text-editing behavior. `Escape` remains the dialog-dismissal key, not the card-flip key.
+
+Known uses a light rising chime; Unknown uses a lower settling chime. Both are brief confirmation cues, not correctness judgments. They respect device volume and fail silently when browser audio is unavailable.
 
 **Known** means the user can recall at least one ordinary meaning and recognize the lemma in context. Identically spelled homographs are one inventory item.
 
 ## Privacy model
 
-WordBloom has no account system, analytics, tracking, cloud synchronization, or application backend. Vocabulary data ships as static assets. Classifications and notes are stored in browser `localStorage`; backup files are created only when the user explicitly exports them. Pronunciation uses the browser's speech synthesizer and does not contact an application service.
+WordBloom has no account system, analytics, tracking, cloud synchronization, or application backend. Vocabulary data ships as static assets. Classifications and notes are stored in browser `localStorage`; backup files are created only when the user explicitly exports them. Pronunciation uses the browser's speech synthesizer and does not contact an application service. Decision sounds use Web Audio with no recordings, downloads, or network requests.
 
 Backups can reveal vocabulary decisions and personal notes. They are intentionally ignored by Git and should be handled as private personal data. Clearing site storage without first exporting a backup permanently removes local progress and notes.
 
@@ -92,6 +97,7 @@ Review the manifest and top-ranked sample before accepting regenerated output. S
 - `app/components/Overview.tsx` — searchable, filterable, virtualized vocabulary grid
 - `app/lib/progress.ts` — status/note encoding, schema validation, migration, backups, counts, and layout helpers
 - `app/lib/speech.ts` — American English voice selection and utterance configuration
+- `app/lib/decision-sounds.ts` — local Known/Unknown sound cues and audio lifecycle
 - `app/data/` — canonical data, compact payload, manifest, and v1 migration map
 - `scripts/generate-word-data.py` — offline deterministic dataset generator
 - `tests/setup.ts` — browser-environment test shims

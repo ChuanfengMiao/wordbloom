@@ -3,6 +3,17 @@
 Status: implemented, validated, and approved for owner-only release
 Prepared: September 2, 2026
 
+## September 3 refinement amendment
+
+The completed stage checklists below record the original phase-two release. The following approved refinements supersede its Escape and editable-vertical-arrow decisions:
+
+- Use one consistent rounded outline on both card faces, quieter solid surfaces, simpler controls, and reduced stack depth.
+- `ArrowDown` toggles the card in both directions; `ArrowUp` plays American English pronunciation on either face, including inside the note editor.
+- Left/Right and modified arrows remain editing keys. Repeated vertical shortcuts and composition input do not trigger card actions. Escape continues to close dialogs only.
+- Add distinct, brief, locally synthesized Known/Unknown cues at accepted classification gestures, with overlap cancellation and graceful audio failure. Persistence and backup formats remain unchanged.
+
+Regression coverage includes the changed keyboard/focus behavior, both button paths, cue selection/timing, audio resume/failure, cancellation, and teardown.
+
 ## Objective
 
 Phase two adds two current-card actions without changing WordBloom's private, front-end-only product boundary:

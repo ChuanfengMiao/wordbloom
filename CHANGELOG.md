@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1 — 2026-09-03
+
+- Unified both card faces' rounded corners, simplified borders and backgrounds, and softened stack shadows.
+- Changed notes-side return to `ArrowDown`; `ArrowUp` now plays pronunciation from the note editor. Modified arrows still edit text, and Escape remains reserved for dialogs.
+- Added distinct, quiet, locally generated Known/Unknown sound cues with overlap control, cleanup, and graceful browser-audio fallback.
+- Expanded keyboard, focus, and audio regression coverage without changing saved progress or backup formats.
+
 ## 1.1.0 — 2026-09-02
 
 - Added device-provided American English pronunciation through `ArrowUp` and on-card Listen controls.
