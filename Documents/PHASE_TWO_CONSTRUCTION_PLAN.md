@@ -1,7 +1,15 @@
 # Phase Two Construction Plan
 
-Status: implemented, validated, and approved for owner-only release
+Status: complete — Phase Two closed by the owner on September 3, 2026.
 Prepared: September 2, 2026
+
+## Final closeout
+
+- Final application release: `1.1.1`, source commit `5c13f155707137130788d4fe83ea4d2556f38ab5`.
+- Validation: lint, type checking, all 49 automated tests, and the production build passed.
+- The matching application is deployed to the existing owner-only WordBloom site; access and resource bindings are unchanged.
+- Pronunciation, persistent notes, revised card styling and shortcuts, and classification sounds are included. No further construction is pending within Phase Two.
+- Source and documentation archive: [WordBloom on GitHub](https://github.com/ChuanfengMiao/wordbloom), branch `main`. Private user progress, notes, credentials, dependencies, and build artifacts are excluded.
 
 ## September 3 refinement amendment
 

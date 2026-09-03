@@ -5,7 +5,7 @@ This directory is the canonical index for WordBloom's architecture and developme
 ## Architecture and development plans
 
 - [Architecture](ARCHITECTURE.md) — system boundary, runtime data, UI flow, persistence, accessibility, and hosting.
-- [Phase Two Construction Plan](PHASE_TWO_CONSTRUCTION_PLAN.md) — staged implementation and acceptance record, including the September 3 card, shortcut, and sound refinements.
+- [Phase Two Construction Plan](PHASE_TWO_CONSTRUCTION_PLAN.md) — completed phase-two implementation, refinement, validation, and closeout record (September 3, 2026).
 
 ## Project and contributor guidance
 
